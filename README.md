@@ -2,18 +2,37 @@
 
 Backend services for NeoMarket recovery tasks.
 
-## Run Locally
+## Structure
+
+```text
+services/
+  b2b/          # Seller cabinet service
+infra/
+  docker-compose.yml
+```
+
+## Run B2B Locally
 
 ```bash
+cd services/b2b
 python -m pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-## Run Tests
+## Run B2B Tests
 
 ```bash
+cd services/b2b
 pytest -q
 ```
+
+## Run With Docker
+
+```bash
+docker compose -f infra/docker-compose.yml up --build
+```
+
+B2B will be available at `http://localhost:8000`.
 
 ## US-B2B-01 ADR
 

@@ -1,0 +1,17 @@
+services:
+  b2b:
+    build:
+      context: ../services/b2b
+    ports:
+      - "8000:8000"
+    environment:
+      JWT_SECRET: dev-secret
+      DATABASE_URL: sqlite:////data/neomarket.db
+      MODERATION_URL: http://moderation:8000
+      MODERATION_SERVICE_KEY: dev-service-key
+    volumes:
+      - b2b_data:/data
+
+volumes:
+  b2b_data:
+
