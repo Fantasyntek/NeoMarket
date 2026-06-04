@@ -98,6 +98,19 @@ def _fetch_visible_products(
     return list(response.get("items", []))
 
 
+def _fetch_categories(b2b_client: B2BClient) -> list[dict[str, Any]]:
+    try:
+        response = b2b_client.list_categories()
+    except B2BResponseError as exc:
+        _raise_b2b_response_error(exc)
+    except B2BUnavailableError:
+        raise api_error(502, "B2B_UNAVAILABLE", "Categories are temporarily unavailable")
+
+    if isinstance(response, list):
+        return response
+    return list(response.get("items", []))
+
+
 def _normalize_name(value: str) -> str:
     return value.strip().lower().replace("_", " ").replace("-", " ")
 
@@ -185,6 +198,145 @@ def _product_parent_category_id(product: dict[str, Any]) -> str | None:
             return parent_id
     parent_category_id = product.get("parent_category_id")
     return parent_category_id if isinstance(parent_category_id, str) else None
+
+
+def _category_parent_id(category: dict[str, Any]) -> str | None:
+    parent_id = category.get("parent_id")
+    return parent_id if isinstance(parent_id, str) and parent_id else None
+
+
+def _category_slug(category: dict[str, Any]) -> str:
+    slug = category.get("slug")
+    if isinstance(slug, str) and slug:
+        return slug
+    return str(category.get("name", "")).strip().lower().replace(" ", "-")
+
+
+def _category_url(category: dict[str, Any]) -> str:
+    slug = _category_slug(category)
+    return f"/catalog/{slug}" if slug else f"/catalog/{category['id']}"
+
+
+def _categories_by_id(categories: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {category["id"]: category for category in categories}
+
+
+def _validate_category_hierarchy(categories: list[dict[str, Any]]) -> None:
+    categories_by_id = _categories_by_id(categories)
+    for category in categories:
+        parent_id = _category_parent_id(category)
+        if parent_id is not None and parent_id not in categories_by_id:
+            raise api_error(
+                422,
+                "ORPHAN_NODE",
+                "category hierarchy is broken",
+            )
+
+    for category in categories:
+        seen_ids: set[str] = set()
+        current = category
+        while _category_parent_id(current) is not None:
+            current_id = current["id"]
+            if current_id in seen_ids:
+                raise api_error(
+                    422,
+                    "ORPHAN_NODE",
+                    "category hierarchy is broken",
+                )
+            seen_ids.add(current_id)
+            current = categories_by_id[_category_parent_id(current)]
+
+
+def _category_path(
+    category_id: str,
+    categories_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if category_id not in categories_by_id:
+        raise api_error(404, "NOT_FOUND", "Category not found")
+
+    path = []
+    current = categories_by_id[category_id]
+    while True:
+        path.append(current)
+        parent_id = _category_parent_id(current)
+        if parent_id is None:
+            break
+        current = categories_by_id[parent_id]
+    return list(reversed(path))
+
+
+def _serialize_category_node(
+    category: dict[str, Any],
+    children_by_parent: dict[str | None, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    return {
+        "id": category["id"],
+        "name": category["name"],
+        "parent_id": _category_parent_id(category),
+        "children": [
+            _serialize_category_node(child, children_by_parent)
+            for child in children_by_parent.get(category["id"], [])
+        ],
+    }
+
+
+def _build_category_tree(categories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    children_by_parent: dict[str | None, list[dict[str, Any]]] = defaultdict(list)
+    for category in categories:
+        children_by_parent[_category_parent_id(category)].append(category)
+    for children in children_by_parent.values():
+        children.sort(key=lambda category: (str(category.get("name", "")), category["id"]))
+    return [
+        _serialize_category_node(category, children_by_parent)
+        for category in children_by_parent.get(None, [])
+    ]
+
+
+def _serialize_category_detail(
+    category: dict[str, Any],
+    categories_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    parent_id = _category_parent_id(category)
+    parent = categories_by_id.get(parent_id) if parent_id else None
+    return {
+        "id": category["id"],
+        "name": category["name"],
+        "slug": _category_slug(category),
+        "description": category.get("description"),
+        "parent": (
+            {
+                "id": parent["id"],
+                "name": parent["name"],
+                "slug": _category_slug(parent),
+            }
+            if parent is not None
+            else None
+        ),
+        "product_count": int(category.get("product_count", 0)),
+        "seo": category.get("seo", {}),
+        "meta_tags": category.get("meta_tags", {}),
+        "image_url": category.get("image_url"),
+        "is_active": category.get("is_active", True),
+        "created_at": category.get("created_at"),
+        "updated_at": category.get("updated_at"),
+    }
+
+
+def _serialize_breadcrumbs(
+    path: list[dict[str, Any]],
+    category_id: str,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": category["id"],
+            "slug": _category_slug(category),
+            "name": category["name"],
+            "url": _category_url(category),
+            "level": index,
+            "is_current": category["id"] == category_id,
+        }
+        for index, category in enumerate(path)
+    ]
 
 
 def _product_price(product: dict[str, Any]) -> int:
@@ -447,6 +599,64 @@ def get_similar_products(
         "total_count": total_count,
         "limit": limit,
         "offset": offset,
+    }
+
+
+@router.get("/categories")
+def get_category_tree(
+    b2b_client: B2BClient = Depends(get_b2b_client),
+) -> dict[str, Any]:
+    categories = _fetch_categories(b2b_client)
+    _validate_category_hierarchy(categories)
+    return {"items": _build_category_tree(categories)}
+
+
+@router.get("/categories/{category_id}")
+def get_category_detail(
+    category_id: str,
+    b2b_client: B2BClient = Depends(get_b2b_client),
+    include_product_count: bool = True,
+) -> dict[str, Any]:
+    categories = _fetch_categories(b2b_client)
+    _validate_category_hierarchy(categories)
+    categories_by_id = _categories_by_id(categories)
+    if category_id not in categories_by_id:
+        raise api_error(404, "NOT_FOUND", "Category not found")
+    return _serialize_category_detail(categories_by_id[category_id], categories_by_id)
+
+
+@router.get("/breadcrumbs")
+def get_breadcrumbs(
+    b2b_client: B2BClient = Depends(get_b2b_client),
+    category_id: str | None = None,
+    product_id: str | None = None,
+) -> dict[str, Any]:
+    if (category_id is None and product_id is None) or (
+        category_id is not None and product_id is not None
+    ):
+        raise api_error(
+            400,
+            "INVALID_REQUEST",
+            "only one of category_id or product_id must be provided",
+        )
+
+    resolved_category_id = category_id
+    if product_id is not None:
+        product = _fetch_product_detail(b2b_client, product_id)
+        resolved_category_id = _product_category_id(product)
+        if resolved_category_id is None:
+            raise api_error(404, "NOT_FOUND", "Category not found")
+
+    categories = _fetch_categories(b2b_client)
+    _validate_category_hierarchy(categories)
+    categories_by_id = _categories_by_id(categories)
+    path = _category_path(str(resolved_category_id), categories_by_id)
+    return {
+        "data": _serialize_breadcrumbs(path, str(resolved_category_id)),
+        "meta": {
+            "resolved_via": "product_id" if product_id is not None else "category_id",
+            "category_id": resolved_category_id,
+        },
     }
 
 
