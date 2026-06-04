@@ -10,10 +10,21 @@ python -m pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
+```bash
+cd services/b2c
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8001
+```
+
 ## Run Tests
 
 ```bash
 cd services/b2b
+pytest -q
+```
+
+```bash
+cd services/b2c
 pytest -q
 ```
 
@@ -24,6 +35,7 @@ docker compose -f infra/docker-compose.yml up --build
 ```
 
 B2B will be available at `http://localhost:8000`.
+B2C will be available at `http://localhost:8001`.
 
 ## US-B2B-01 ADR
 
@@ -64,3 +76,15 @@ For moderation event idempotency I considered a separate `processed_events` tabl
 ## US-B2B-10 ADR
 
 For fulfill idempotency I considered a separate `fulfilled_orders` table keyed by `order_id`, storing the last fulfilled order on each SKU, and relying on `reserved_quantity` checks. I chose a separate fulfill operations table because retries from B2C can be answered without touching SKU counters again, which directly reduces the risk of double deduction. A per-SKU field would not work cleanly for multi-SKU orders, and using only `reserved_quantity` cannot distinguish a duplicate retry from a new invalid request. The table approach is simple to support and matches the existing reserve/unreserve idempotency pattern.
+
+## US-B2B-11 ADR
+
+For `skus_count` and `total_active_quantity` in the seller product list I considered SQL aggregate annotations/subqueries, computing them in the serializer after loading products, and raw SQL. I chose aggregate subqueries in the list query because they avoid N+1 SKU loading while keeping the endpoint in normal SQLAlchemy code. Serializer-side calculation is simpler but can issue one SKU query per product as the list grows. Raw SQL would be efficient, but it is harder to maintain alongside the existing ORM filters and response logic.
+
+## US-B2B-12 ADR
+
+For ordering SKU deletion guardrails I considered separate checks with early returns, one `validate_deletion` function, and putting deletion checks into serializer-style validation. I chose explicit early-return checks inside the endpoint because the canonical order is business-critical: ownership, `HARD_BLOCKED`, then active reserves. A single validation function would reduce endpoint size, but it can hide the order of checks unless carefully documented. Serializer validation does not fit this service style well and increases the risk that future side effects are added after the wrong guardrail.
+
+## US-CAT-01 ADR
+
+For catalog facets I considered SQL `GROUP BY` on each request in the source catalog service, a TTL cache of facet responses, and denormalized counters in a separate table. I chose request-time calculation over the current B2B response for this first B2C iteration because B2C does not store products and this keeps facet counts consistent with the visible catalog payload returned by B2B. A TTL cache would reduce repeated load but can show stale counts after moderation or stock changes. Denormalized counters would scale better for a large catalog, but they add invalidation complexity before the event model for B2C catalog projections exists.
