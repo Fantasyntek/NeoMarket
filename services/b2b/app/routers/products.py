@@ -4,10 +4,10 @@ import re
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.orm import Session
 
-from app.auth import CurrentSeller, require_seller
+from app.auth import CurrentSeller, decode_access_token, is_valid_service_key, require_seller
 from app.b2c import (
     B2CDispatcher,
     build_product_deleted_event,
@@ -110,13 +110,58 @@ def _slugify(title: str) -> str:
 
 
 def _normalize_product_id(product_id: str) -> str:
+    return _normalize_uuid(product_id, "product_id")
+
+
+def _normalize_uuid(value: str, field_name: str) -> str:
     try:
-        return str(UUID(product_id))
+        return str(UUID(value))
     except ValueError:
-        raise api_error(400, "INVALID_REQUEST", "product_id must be a valid UUID")
+        raise api_error(400, "INVALID_REQUEST", f"{field_name} must be a valid UUID")
 
 
-def _serialize_product(product: Product) -> dict[str, Any]:
+def _seller_from_authorization(authorization: str | None) -> CurrentSeller:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise api_error(401, "UNAUTHORIZED", "Authorization required")
+
+    payload = decode_access_token(authorization.removeprefix("Bearer ").strip())
+    seller_id = payload.get("seller_id")
+    if not isinstance(seller_id, str) or not seller_id:
+        raise api_error(401, "UNAUTHORIZED", "seller_id claim is required")
+    return CurrentSeller(seller_id=seller_id)
+
+
+def _serialize_blocking_reason(product: Product) -> dict[str, str] | None:
+    if product.blocking_reason_id is None:
+        return None
+    return {
+        "id": product.blocking_reason_id,
+        "title": product.blocking_reason_title or "",
+        "comment": product.moderator_comment or "",
+    }
+
+
+def _serialize_sku_for_product(sku: Any, include_sensitive: bool) -> dict[str, Any]:
+    payload = {
+        "id": sku.id,
+        "product_id": sku.product_id,
+        "name": sku.name,
+        "price": sku.price,
+        "discount": sku.discount,
+        "image": sku.image,
+        "active_quantity": sku.active_quantity,
+        "characteristics": [
+            {"id": item.id, "name": item.name, "value": item.value}
+            for item in sku.characteristics
+        ],
+    }
+    if include_sensitive:
+        payload["cost_price"] = sku.cost_price
+        payload["reserved_quantity"] = sku.reserved_quantity
+    return payload
+
+
+def _serialize_product(product: Product, include_sensitive: bool = True) -> dict[str, Any]:
     return {
         "id": product.id,
         "seller_id": product.seller_id,
@@ -129,6 +174,7 @@ def _serialize_product(product: Product) -> dict[str, Any]:
         "blocked": product.blocked,
         "blocking_reason_id": product.blocking_reason_id,
         "moderator_comment": product.moderator_comment,
+        "blocking_reason": _serialize_blocking_reason(product),
         "category": {"id": product.category.id, "name": product.category.name},
         "images": [
             {"id": image.id, "url": image.url, "ordering": image.ordering}
@@ -138,19 +184,14 @@ def _serialize_product(product: Product) -> dict[str, Any]:
             {"id": item.id, "name": item.name, "value": item.value}
             for item in product.characteristics
         ],
-        "skus": [
+        "skus": [_serialize_sku_for_product(sku, include_sensitive) for sku in product.skus],
+        "field_reports": [
             {
-                "id": sku.id,
-                "product_id": sku.product_id,
-                "name": sku.name,
-                "price": sku.price,
-                "cost_price": sku.cost_price,
-                "discount": sku.discount,
-                "image": sku.image,
-                "active_quantity": sku.active_quantity,
-                "reserved_quantity": sku.reserved_quantity,
+                "field_name": report.field_name,
+                "sku_id": report.sku_id,
+                "comment": report.comment,
             }
-            for sku in product.skus
+            for report in product.field_reports
         ],
         "created_at": product.created_at.isoformat(),
         "updated_at": product.updated_at.isoformat(),
@@ -236,6 +277,27 @@ def create_product(
     db.commit()
     db.refresh(product)
     return _serialize_product(product)
+
+
+@router.get("/products/{product_id}")
+def get_product(
+    product_id: str,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_service_key: str | None = Header(default=None, alias="X-Service-Key"),
+) -> dict[str, Any]:
+    normalized_product_id = _normalize_uuid(product_id, "id")
+    product = db.get(Product, normalized_product_id)
+    if product is None:
+        raise api_error(404, "NOT_FOUND", "Product not found")
+
+    if is_valid_service_key(x_service_key):
+        return _serialize_product(product, include_sensitive=False)
+
+    current_seller = _seller_from_authorization(authorization)
+    if product.seller_id != current_seller.seller_id:
+        raise api_error(404, "NOT_FOUND", "Product not found")
+    return _serialize_product(product, include_sensitive=True)
 
 
 @router.put("/products/{product_id}")
