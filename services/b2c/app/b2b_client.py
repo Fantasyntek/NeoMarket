@@ -24,6 +24,9 @@ class B2BClient(Protocol):
     def list_products(self, params: dict[str, Any]) -> dict[str, Any]:
         pass
 
+    def get_product(self, product_id: str) -> dict[str, Any]:
+        pass
+
 
 class HttpB2BClient:
     def __init__(
@@ -39,6 +42,26 @@ class HttpB2BClient:
             response = httpx.get(
                 f"{self.base_url}/api/v1/products",
                 params=params,
+                headers={"X-Service-Key": self.service_key},
+                timeout=5.0,
+            )
+        except httpx.RequestError as exc:
+            raise B2BUnavailableError from exc
+
+        if response.status_code >= 500:
+            raise B2BUnavailableError
+        if response.status_code >= 400:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {"code": "B2B_ERROR", "message": "B2B request failed"}
+            raise B2BResponseError(response.status_code, payload)
+        return response.json()
+
+    def get_product(self, product_id: str) -> dict[str, Any]:
+        try:
+            response = httpx.get(
+                f"{self.base_url}/api/v1/products/{product_id}",
                 headers={"X-Service-Key": self.service_key},
                 timeout=5.0,
             )

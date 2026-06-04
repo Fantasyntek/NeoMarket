@@ -235,6 +235,51 @@ def _serialize_product_card(product: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _public_sku(sku: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": sku["id"],
+        "name": sku.get("name"),
+        "price": int(sku.get("price", 0)),
+        "discount": int(sku.get("discount", 0)),
+        "image": sku.get("image"),
+        "active_quantity": int(sku.get("active_quantity", 0)),
+        "in_stock": int(sku.get("active_quantity", 0)) > 0,
+        "characteristics": [
+            {
+                "name": characteristic.get("name"),
+                "value": characteristic.get("value"),
+            }
+            for characteristic in sku.get("characteristics", [])
+        ],
+    }
+
+
+def _serialize_product_detail(product: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": product["id"],
+        "slug": product.get("slug"),
+        "title": product["title"],
+        "description": product.get("description", ""),
+        "images": [
+            {"url": image.get("url"), "ordering": image.get("ordering", 0)}
+            for image in product.get("images", [])
+        ],
+        "status": product.get("status"),
+        "characteristics": [
+            {
+                "name": characteristic.get("name"),
+                "value": characteristic.get("value"),
+            }
+            for characteristic in product.get("characteristics", [])
+        ],
+        "skus": [_public_sku(sku) for sku in product.get("skus", [])],
+    }
+
+
+def _product_is_customer_visible(product: dict[str, Any]) -> bool:
+    return product.get("status") == "MODERATED" and product.get("deleted") is not True
+
+
 def _build_facets(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
     counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for product in products:
@@ -286,6 +331,29 @@ def list_products(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.get("/products/{product_id}")
+def get_product_card(
+    product_id: str,
+    b2b_client: B2BClient = Depends(get_b2b_client),
+) -> dict[str, Any]:
+    try:
+        product = b2b_client.get_product(product_id)
+    except B2BResponseError as exc:
+        payload = exc.payload
+        raise api_error(
+            exc.status_code,
+            str(payload.get("code", "B2B_ERROR")),
+            str(payload.get("message", "B2B request failed")),
+        )
+    except B2BUnavailableError:
+        raise api_error(502, "B2B_UNAVAILABLE", "Product is temporarily unavailable")
+
+    if not _product_is_customer_visible(product):
+        raise api_error(404, "NOT_FOUND", "Product not found")
+
+    return _serialize_product_detail(product)
 
 
 @router.get("/catalog/facets")
