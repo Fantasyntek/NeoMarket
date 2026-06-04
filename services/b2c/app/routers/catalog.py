@@ -174,6 +174,19 @@ def _product_category_id(product: dict[str, Any]) -> str | None:
     return product.get("category_id")
 
 
+def _product_parent_category_id(product: dict[str, Any]) -> str | None:
+    category = product.get("category")
+    if isinstance(category, dict):
+        parent = category.get("parent")
+        if isinstance(parent, dict):
+            return parent.get("id")
+        parent_id = category.get("parent_id")
+        if isinstance(parent_id, str):
+            return parent_id
+    parent_category_id = product.get("parent_category_id")
+    return parent_category_id if isinstance(parent_category_id, str) else None
+
+
 def _product_price(product: dict[str, Any]) -> int:
     prices = []
     for sku in product.get("skus", []):
@@ -280,6 +293,42 @@ def _product_is_customer_visible(product: dict[str, Any]) -> bool:
     return product.get("status") == "MODERATED" and product.get("deleted") is not True
 
 
+def _raise_b2b_response_error(exc: B2BResponseError) -> None:
+    payload = exc.payload
+    raise api_error(
+        exc.status_code,
+        str(payload.get("code", "B2B_ERROR")),
+        str(payload.get("message", "B2B request failed")),
+    )
+
+
+def _fetch_product_detail(b2b_client: B2BClient, product_id: str) -> dict[str, Any]:
+    try:
+        return b2b_client.get_product(product_id)
+    except B2BResponseError as exc:
+        _raise_b2b_response_error(exc)
+    except B2BUnavailableError:
+        raise api_error(502, "B2B_UNAVAILABLE", "Product is temporarily unavailable")
+
+
+def _select_similar_products(
+    current_product: dict[str, Any],
+    products: list[dict[str, Any]],
+    limit: int,
+    offset: int,
+) -> tuple[list[dict[str, Any]], int]:
+    current_product_id = current_product["id"]
+    candidates = [
+        product
+        for product in products
+        if product.get("id") != current_product_id
+        and _product_is_customer_visible(product)
+        and any(sku.get("active_quantity", 0) > 0 for sku in product.get("skus", []))
+    ]
+    candidates = sorted(candidates, key=lambda product: product["id"])
+    return candidates[offset : offset + limit], len(candidates)
+
+
 def _build_facets(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
     counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for product in products:
@@ -338,22 +387,67 @@ def get_product_card(
     product_id: str,
     b2b_client: B2BClient = Depends(get_b2b_client),
 ) -> dict[str, Any]:
-    try:
-        product = b2b_client.get_product(product_id)
-    except B2BResponseError as exc:
-        payload = exc.payload
-        raise api_error(
-            exc.status_code,
-            str(payload.get("code", "B2B_ERROR")),
-            str(payload.get("message", "B2B request failed")),
-        )
-    except B2BUnavailableError:
-        raise api_error(502, "B2B_UNAVAILABLE", "Product is temporarily unavailable")
+    product = _fetch_product_detail(b2b_client, product_id)
 
     if not _product_is_customer_visible(product):
         raise api_error(404, "NOT_FOUND", "Product not found")
 
     return _serialize_product_detail(product)
+
+
+@router.get("/products/{product_id}/similar")
+def get_similar_products(
+    product_id: str,
+    b2b_client: B2BClient = Depends(get_b2b_client),
+    category: str | None = None,
+    limit: int = Query(default=8, ge=1, le=20),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    current_product = _fetch_product_detail(b2b_client, product_id)
+    if not _product_is_customer_visible(current_product):
+        raise api_error(404, "NOT_FOUND", "Product not found")
+
+    category_id = category or _product_category_id(current_product)
+    if category_id is None:
+        return {"items": [], "total_count": 0, "limit": limit, "offset": offset}
+
+    products = _fetch_visible_products(b2b_client, category_id, search=None)
+    selected_products, total_count = _select_similar_products(
+        current_product,
+        products,
+        limit,
+        offset,
+    )
+
+    if len(selected_products) < limit:
+        parent_category_id = _product_parent_category_id(current_product)
+        if parent_category_id is not None and parent_category_id != category_id:
+            parent_products = _fetch_visible_products(
+                b2b_client,
+                parent_category_id,
+                search=None,
+            )
+            existing_ids = {product["id"] for product in selected_products}
+            parent_candidates = [
+                product
+                for product in parent_products
+                if product.get("id") != current_product["id"]
+                and product["id"] not in existing_ids
+                and _product_category_id(product) != category_id
+                and _product_is_customer_visible(product)
+                and any(sku.get("active_quantity", 0) > 0 for sku in product.get("skus", []))
+            ]
+            parent_candidates = sorted(parent_candidates, key=lambda product: product["id"])
+            missing_count = limit - len(selected_products)
+            selected_products.extend(parent_candidates[:missing_count])
+            total_count += len(parent_candidates)
+
+    return {
+        "items": [_serialize_product_card(product) for product in selected_products],
+        "total_count": total_count,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/catalog/facets")
