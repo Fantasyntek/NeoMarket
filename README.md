@@ -96,3 +96,7 @@ For catalog search I considered SQL `LIKE`/`icontains`, PostgreSQL `pg_trgm`, an
 ## US-CAT-03 ADR
 
 For separating B2B and B2C product representations I considered a dedicated public serializer, view-level field filtering, and a separate B2B endpoint returning only buyer-safe data. I chose a dedicated public serializer in B2C because it explicitly whitelists buyer-visible fields and prevents new internal B2B fields from leaking by default. View-level filtering is quicker but easier to miss when nested SKU fields change. A separate B2B endpoint would also reduce leakage risk, but it adds another cross-service contract before the product-card response shape is stable.
+
+## US-CAT-04 ADR
+
+For similar products I considered random selection from the same category, ranking by the highest characteristic overlap, and cached precomputed recommendations. I chose deterministic selection from the same category with a parent-category fallback because it is simple for the MVP and gives stable results across repeated requests. Random ordering is easy to ship but makes tests and user experience less predictable. Characteristic ranking and precomputed recommendations can improve relevance later, but they need more catalog data and invalidation logic than this first B2C integration has.
