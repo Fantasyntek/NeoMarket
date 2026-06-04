@@ -37,6 +37,7 @@ class Product(Base):
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     blocking_reason_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    blocking_reason_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     moderator_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -58,6 +59,9 @@ class Product(Base):
         back_populates="product", cascade="all, delete-orphan"
     )
     skus: Mapped[list[SKU]] = relationship(
+        back_populates="product", cascade="all, delete-orphan"
+    )
+    field_reports: Mapped[list[ProductFieldReport]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
     )
 
@@ -116,6 +120,7 @@ class SKU(Base):
     characteristics: Mapped[list[SKUCharacteristicValue]] = relationship(
         back_populates="sku", cascade="all, delete-orphan"
     )
+    invoice_items: Mapped[list[InvoiceItem]] = relationship(back_populates="sku")
 
 
 class SKUCharacteristicValue(Base):
@@ -129,6 +134,20 @@ class SKUCharacteristicValue(Base):
     value: Mapped[str] = mapped_column(Text, nullable=False)
 
     sku: Mapped[SKU] = relationship(back_populates="characteristics")
+
+
+class ProductFieldReport(Base):
+    __tablename__ = "product_field_reports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    product_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("products.id"), nullable=False, index=True
+    )
+    field_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    sku_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    comment: Mapped[str] = mapped_column(Text, nullable=False)
+
+    product: Mapped[Product] = relationship(back_populates="field_reports")
 
 
 class ModerationOutboxEvent(Base):
@@ -145,3 +164,90 @@ class ModerationOutboxEvent(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class B2COutboxEvent(Base):
+    __tablename__ = "b2c_outbox_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    idempotency_key: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    event: Mapped[str] = mapped_column(String(64), nullable=False)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="PENDING")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ReserveOperation(Base):
+    __tablename__ = "reserve_operations"
+
+    idempotency_key: Mapped[str] = mapped_column(String(36), primary_key=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class UnreserveOperation(Base):
+    __tablename__ = "unreserve_operations"
+
+    order_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ProcessedModerationEvent(Base):
+    __tablename__ = "processed_moderation_events"
+
+    idempotency_key: Mapped[str] = mapped_column(String(36), primary_key=True)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    seller_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="PENDING")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    accepted_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+    items: Mapped[list[InvoiceItem]] = relationship(
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+    )
+
+
+class InvoiceItem(Base):
+    __tablename__ = "invoice_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    invoice_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("invoices.id"), nullable=False, index=True
+    )
+    sku_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("skus.id"), nullable=False, index=True
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    accepted_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    invoice: Mapped[Invoice] = relationship(back_populates="items")
+    sku: Mapped[SKU] = relationship(back_populates="invoice_items")
