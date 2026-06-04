@@ -60,3 +60,7 @@ For all-or-nothing reservation I considered a single transaction with `SELECT FO
 ## US-B2B-09 ADR
 
 For moderation event idempotency I considered a separate `processed_events` table keyed by `idempotency_key`, storing the last event key on `Product`, and an upsert guarded by product/status conditions. I chose a separate processed moderation events table because the database primary key gives a simple uniqueness boundary and keeps duplicate detection independent of the product's current status. This has lower race-condition risk than checking mutable product fields and is easier to support as more moderation event types appear. A conditional upsert could be compact, but it would make the state transition rules harder to read and test.
+
+## US-B2B-10 ADR
+
+For fulfill idempotency I considered a separate `fulfilled_orders` table keyed by `order_id`, storing the last fulfilled order on each SKU, and relying on `reserved_quantity` checks. I chose a separate fulfill operations table because retries from B2C can be answered without touching SKU counters again, which directly reduces the risk of double deduction. A per-SKU field would not work cleanly for multi-SKU orders, and using only `reserved_quantity` cannot distinguish a duplicate retry from a new invalid request. The table approach is simple to support and matches the existing reserve/unreserve idempotency pattern.

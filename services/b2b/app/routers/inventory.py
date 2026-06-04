@@ -18,7 +18,7 @@ from app.b2c import (
 )
 from app.database import get_db
 from app.errors import api_error
-from app.models import ReserveOperation, SKU, UnreserveOperation
+from app.models import FulfillOperation, ReserveOperation, SKU, UnreserveOperation
 
 
 router = APIRouter(prefix="/api/v1", tags=["Inventory"])
@@ -182,6 +182,42 @@ def unreserve_skus(
     result = {"ok": True}
     db.add(
         UnreserveOperation(
+            order_id=order_id,
+            result_json=json.dumps(result, ensure_ascii=False, separators=(",", ":")),
+        )
+    )
+    db.commit()
+    return result
+
+
+@router.post("/fulfill")
+def fulfill_skus(
+    payload: dict[str, Any],
+    db: Session = Depends(get_db),
+    x_service_key: str | None = Header(default=None, alias="X-Service-Key"),
+) -> dict[str, bool]:
+    _require_service_key(x_service_key)
+    order_id = _require_uuid(payload, "order_id")
+    existing_operation = db.get(FulfillOperation, order_id)
+    if existing_operation is not None:
+        return json.loads(existing_operation.result_json)
+
+    items = _validate_items(payload)
+    skus_by_id = _load_skus_for_update(db, [item["sku_id"] for item in items])
+    for item in items:
+        sku = skus_by_id.get(item["sku_id"])
+        if sku is None:
+            raise api_error(404, "NOT_FOUND", "SKU not found")
+        if sku.reserved_quantity < item["quantity"]:
+            raise api_error(409, "CONFLICT", "Cannot fulfill more than reserved quantity")
+
+    for item in items:
+        sku = skus_by_id[item["sku_id"]]
+        sku.reserved_quantity -= item["quantity"]
+
+    result = {"ok": True}
+    db.add(
+        FulfillOperation(
             order_id=order_id,
             result_json=json.dumps(result, ensure_ascii=False, separators=(",", ":")),
         )
