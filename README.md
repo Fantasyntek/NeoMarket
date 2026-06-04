@@ -36,3 +36,7 @@ For delivering the `CREATED` event to Moderation I considered a synchronous POST
 ## US-B2B-03 ADR
 
 For IDOR protection while editing products and SKUs I considered explicit checks in each view, a reusable permission layer, and filtering all write queries by owner. I chose explicit ownership checks in the endpoint for this iteration: product edits compare `product.seller_id` with the JWT claim, and SKU edits check ownership through `sku.product.seller_id`. This is simple to maintain in the current small FastAPI service and keeps the authorization rule visible next to each state transition. A permission abstraction or owner-filtered repository would reduce the risk of forgetting the check as the API grows, but it adds indirection before the endpoint surface is stable.
+
+## US-B2B-04 ADR
+
+For the two cascade events on product deletion I considered two synchronous POST calls, an outbox for both events, and a mixed approach with synchronous Moderation delivery plus an outbox only for B2C. I chose outbox records for both Moderation and B2C because the `deleted=true` state and both event payloads are committed together before delivery. If either downstream service is unavailable, deletion is not rolled back and the failed event remains visible for retry instead of silently disappearing. This is slightly more code than two direct POST calls, but it gives clearer behavior for partial failures and keeps data consistency easier to reason about.
