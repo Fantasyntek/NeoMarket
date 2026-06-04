@@ -55,6 +55,16 @@ def build_product_deleted_event(product: Product, sku_ids: list[str]) -> dict[st
     }
 
 
+def build_product_blocked_event(product: Product, sku_ids: list[str]) -> dict[str, Any]:
+    return {
+        "idempotency_key": str(uuid4()),
+        "event": "PRODUCT_BLOCKED",
+        "product_id": product.id,
+        "sku_ids": sku_ids,
+        "date": utc_now_iso(),
+    }
+
+
 def build_sku_out_of_stock_event(sku_id: str, product_id: str) -> dict[str, Any]:
     return {
         "idempotency_key": str(uuid4()),
