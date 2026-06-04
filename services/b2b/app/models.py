@@ -201,6 +201,17 @@ class UnreserveOperation(Base):
     )
 
 
+class ProcessedModerationEvent(Base):
+    __tablename__ = "processed_moderation_events"
+
+    idempotency_key: Mapped[str] = mapped_column(String(36), primary_key=True)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Invoice(Base):
     __tablename__ = "invoices"
 
