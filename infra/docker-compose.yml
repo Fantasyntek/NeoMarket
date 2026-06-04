@@ -6,6 +6,7 @@ services:
       DATABASE_URL: sqlite:////data/neomarket.db
       B2C_SERVICE_KEY: dev-service-key
       B2C_URL: http://b2c:8000
+      B2B_SERVICE_KEY: dev-service-key
       JWT_SECRET: dev-secret
       MODERATION_SERVICE_KEY: dev-service-key
       MODERATION_URL: http://moderation:8000
