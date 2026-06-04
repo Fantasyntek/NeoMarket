@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.database import init_db
 from app.routers.invoices import router as invoices_router
+from app.routers.inventory import router as inventory_router
 from app.routers.products import router as products_router
 from app.routers.skus import router as skus_router
 
@@ -54,6 +55,7 @@ def create_app(init_database: bool = True) -> FastAPI:
 
     app.include_router(skus_router)
     app.include_router(invoices_router)
+    app.include_router(inventory_router)
     app.include_router(products_router)
     return app
 
