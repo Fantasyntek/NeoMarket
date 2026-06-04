@@ -88,3 +88,7 @@ For ordering SKU deletion guardrails I considered separate checks with early ret
 ## US-CAT-01 ADR
 
 For catalog facets I considered SQL `GROUP BY` on each request in the source catalog service, a TTL cache of facet responses, and denormalized counters in a separate table. I chose request-time calculation over the current B2B response for this first B2C iteration because B2C does not store products and this keeps facet counts consistent with the visible catalog payload returned by B2B. A TTL cache would reduce repeated load but can show stale counts after moderation or stock changes. Denormalized counters would scale better for a large catalog, but they add invalidation complexity before the event model for B2C catalog projections exists.
+
+## US-CAT-02 ADR
+
+For catalog search I considered SQL `LIKE`/`icontains`, PostgreSQL `pg_trgm`, and full-text `SearchVector`. I chose the `LIKE`/`icontains` style for the MVP because B2C proxies the `search` parameter to B2B and only needs lightweight length validation plus deterministic filtering for the current response shape. `pg_trgm` would improve typo tolerance and ranking, but it requires PostgreSQL-specific setup that is unnecessary for the first search flow. `SearchVector` can provide better relevance for large text fields, but it is more complex to tune and maintain before the catalog schema stabilizes.

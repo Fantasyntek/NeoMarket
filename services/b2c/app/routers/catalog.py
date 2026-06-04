@@ -44,6 +44,25 @@ def _invalid_sort_error() -> None:
     )
 
 
+def _validate_search_query(search: str | None) -> str | None:
+    if search is None:
+        return None
+    normalized_search = search.strip()
+    if len(normalized_search) < 3:
+        raise api_error(
+            400,
+            "INVALID_REQUEST",
+            "Search query must be at least 3 characters",
+        )
+    if len(normalized_search) > 255:
+        raise api_error(
+            400,
+            "INVALID_REQUEST",
+            "Search query must be at most 255 characters",
+        )
+    return normalized_search
+
+
 def _parse_filters(request: Request) -> dict[str, str]:
     filters: dict[str, str] = {}
     for key, value in request.query_params.multi_items():
@@ -130,6 +149,22 @@ def _apply_filters(
             if _product_matches_filter(product, name, value)
         ]
     return filtered_products
+
+
+def _apply_search(
+    products: list[dict[str, Any]],
+    search: str | None,
+) -> list[dict[str, Any]]:
+    if search is None:
+        return products
+
+    needle = search.lower()
+    return [
+        product
+        for product in products
+        if needle in str(product.get("title", "")).lower()
+        or needle in str(product.get("description", "")).lower()
+    ]
 
 
 def _product_category_id(product: dict[str, Any]) -> str | None:
@@ -237,9 +272,11 @@ def list_products(
     if sort not in ALLOWED_SORTS:
         _invalid_sort_error()
 
+    normalized_search = _validate_search_query(search)
     filters = _parse_filters(request)
-    products = _fetch_visible_products(b2b_client, category_id, search)
-    filtered_products = _apply_filters(products, category_id, filters)
+    products = _fetch_visible_products(b2b_client, category_id, normalized_search)
+    searched_products = _apply_search(products, normalized_search)
+    filtered_products = _apply_filters(searched_products, category_id, filters)
     sorted_products = _sort_products(filtered_products, sort)
     page = sorted_products[offset : offset + limit]
 
@@ -258,9 +295,11 @@ def get_facets(
     category_id: str | None = None,
     search: str | None = None,
 ) -> dict[str, Any]:
+    normalized_search = _validate_search_query(search)
     filters = _parse_filters(request)
-    products = _fetch_visible_products(b2b_client, category_id, search)
-    filtered_products = _apply_filters(products, category_id, filters)
+    products = _fetch_visible_products(b2b_client, category_id, normalized_search)
+    searched_products = _apply_search(products, normalized_search)
+    filtered_products = _apply_filters(searched_products, category_id, filters)
 
     return {
         "category_id": category_id,
