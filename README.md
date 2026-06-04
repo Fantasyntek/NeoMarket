@@ -100,3 +100,7 @@ For separating B2B and B2C product representations I considered a dedicated publ
 ## US-CAT-04 ADR
 
 For similar products I considered random selection from the same category, ranking by the highest characteristic overlap, and cached precomputed recommendations. I chose deterministic selection from the same category with a parent-category fallback because it is simple for the MVP and gives stable results across repeated requests. Random ordering is easy to ship but makes tests and user experience less predictable. Characteristic ranking and precomputed recommendations can improve relevance later, but they need more catalog data and invalidation logic than this first B2C integration has.
+
+## US-CAT-05 ADR
+
+For category hierarchy storage I considered PostgreSQL `ltree`, adjacency list with recursive traversal, and materialized path. I chose adjacency list for this service boundary because B2C receives a flat category list from B2B and can build trees and breadcrumbs without storing its own category projection. Breadcrumb lookup is fast enough for the small MVP tree after building an in-memory id index, and orphan detection is straightforward because every `parent_id` must exist in that same index. `ltree` and materialized path would speed up deep breadcrumb queries at scale, but they add database-specific storage decisions before B2C owns category persistence.
