@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -17,16 +15,16 @@ from app.models import (
     SKU,
     SKUCharacteristicValue,
 )
-from app.moderation import ModerationDispatcher, get_moderation_dispatcher
+from app.moderation import (
+    ModerationDispatcher,
+    build_product_event,
+    dispatch_and_mark_sent,
+    get_moderation_dispatcher,
+    record_outbox_event,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["SKUs"])
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
-        "+00:00", "Z"
-    )
 
 
 def _require_uuid(payload: dict[str, Any], field: str) -> str:
@@ -110,29 +108,6 @@ def _serialize_sku(sku: SKU) -> dict[str, Any]:
     }
 
 
-def _build_moderation_event(product: Product, event: str) -> dict[str, Any]:
-    return {
-        "idempotency_key": str(uuid4()),
-        "product_id": product.id,
-        "seller_id": product.seller_id,
-        "event": event,
-        "date": _utc_now_iso(),
-    }
-
-
-def _record_outbox_event(db: Session, payload: dict[str, Any]) -> ModerationOutboxEvent:
-    outbox_event = ModerationOutboxEvent(
-        idempotency_key=payload["idempotency_key"],
-        event=payload["event"],
-        product_id=payload["product_id"],
-        seller_id=payload["seller_id"],
-        payload_json=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-        status="PENDING",
-    )
-    db.add(outbox_event)
-    return outbox_event
-
-
 @router.post("/skus", status_code=201)
 def create_sku(
     payload: dict[str, Any],
@@ -182,21 +157,69 @@ def create_sku(
 
     if was_without_skus and product.status == "CREATED":
         product.status = "ON_MODERATION"
-        event_payload = _build_moderation_event(product, "CREATED")
-        outbox_event = _record_outbox_event(db, event_payload)
+        event_payload = build_product_event(product, "CREATED")
+        outbox_event = record_outbox_event(db, event_payload)
 
     db.commit()
     db.refresh(sku)
 
-    if event_payload is not None and outbox_event is not None:
-        try:
-            moderation_dispatcher.send_product_event(event_payload)
-        except Exception:
-            pass
-        else:
-            outbox_event.status = "SENT"
-            outbox_event.sent_at = datetime.now(timezone.utc)
-            db.commit()
+    dispatch_and_mark_sent(db, moderation_dispatcher, event_payload, outbox_event)
 
     return _serialize_sku(sku)
 
+
+@router.put("/skus/{sku_id}")
+def update_sku(
+    sku_id: str,
+    payload: dict[str, Any],
+    current_seller: CurrentSeller = Depends(require_seller),
+    db: Session = Depends(get_db),
+    moderation_dispatcher: ModerationDispatcher = Depends(get_moderation_dispatcher),
+) -> dict[str, Any]:
+    try:
+        normalized_sku_id = str(UUID(sku_id))
+    except ValueError:
+        raise api_error(400, "INVALID_REQUEST", "sku_id must be a valid UUID")
+
+    sku = db.get(SKU, normalized_sku_id)
+    if sku is None:
+        raise api_error(404, "NOT_FOUND", "SKU not found")
+
+    product = sku.product
+    if product.seller_id != current_seller.seller_id:
+        raise api_error(
+            403,
+            "NOT_OWNER",
+            "SKU does not belong to the authenticated seller",
+        )
+    if product.status == "HARD_BLOCKED":
+        raise api_error(403, "FORBIDDEN", "Cannot edit hard-blocked product")
+
+    name = _require_string(payload, "name", 255)
+    price = _require_positive_int(payload, "price")
+    cost_price = _require_positive_int(payload, "cost_price")
+    discount = _optional_non_negative_int(payload, "discount", 0)
+    image = _require_string(payload, "image", 2048)
+    characteristics = _validate_characteristics(payload)
+
+    sku.name = name
+    sku.price = price
+    sku.cost_price = cost_price
+    sku.discount = discount
+    sku.image = image
+    sku.characteristics = [
+        SKUCharacteristicValue(name=item["name"], value=item["value"])
+        for item in characteristics
+    ]
+
+    event_payload: dict[str, Any] | None = None
+    outbox_event: ModerationOutboxEvent | None = None
+    if product.status in {"MODERATED", "BLOCKED"}:
+        product.status = "ON_MODERATION"
+        event_payload = build_product_event(product, "EDITED")
+        outbox_event = record_outbox_event(db, event_payload)
+
+    db.commit()
+    db.refresh(sku)
+    dispatch_and_mark_sent(db, moderation_dispatcher, event_payload, outbox_event)
+    return _serialize_sku(sku)

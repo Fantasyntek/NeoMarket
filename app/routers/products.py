@@ -11,6 +11,13 @@ from app.auth import CurrentSeller, require_seller
 from app.database import get_db
 from app.errors import api_error
 from app.models import Category, CharacteristicValue, Product, ProductImage
+from app.moderation import (
+    ModerationDispatcher,
+    build_product_event,
+    dispatch_and_mark_sent,
+    get_moderation_dispatcher,
+    record_outbox_event,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["Products"])
@@ -114,7 +121,20 @@ def _serialize_product(product: Product) -> dict[str, Any]:
             {"id": item.id, "name": item.name, "value": item.value}
             for item in product.characteristics
         ],
-        "skus": [],
+        "skus": [
+            {
+                "id": sku.id,
+                "product_id": sku.product_id,
+                "name": sku.name,
+                "price": sku.price,
+                "cost_price": sku.cost_price,
+                "discount": sku.discount,
+                "image": sku.image,
+                "active_quantity": sku.active_quantity,
+                "reserved_quantity": sku.reserved_quantity,
+            }
+            for sku in product.skus
+        ],
         "created_at": product.created_at.isoformat(),
         "updated_at": product.updated_at.isoformat(),
     }
@@ -153,3 +173,58 @@ def create_product(
     db.refresh(product)
     return _serialize_product(product)
 
+
+@router.put("/products/{product_id}")
+def update_product(
+    product_id: str,
+    payload: dict[str, Any],
+    current_seller: CurrentSeller = Depends(require_seller),
+    db: Session = Depends(get_db),
+    moderation_dispatcher: ModerationDispatcher = Depends(get_moderation_dispatcher),
+) -> dict[str, Any]:
+    try:
+        normalized_product_id = str(UUID(product_id))
+    except ValueError:
+        raise api_error(400, "INVALID_REQUEST", "product_id must be a valid UUID")
+
+    product = db.get(Product, normalized_product_id)
+    if product is None:
+        raise api_error(404, "NOT_FOUND", "Product not found")
+    if product.seller_id != current_seller.seller_id:
+        raise api_error(
+            403,
+            "NOT_OWNER",
+            "Product does not belong to the authenticated seller",
+        )
+    if product.status == "HARD_BLOCKED":
+        raise api_error(403, "FORBIDDEN", "Cannot edit hard-blocked product")
+
+    title = _require_string(payload, "title", 255)
+    description = _require_string(payload, "description", 5000)
+    category = _validate_category_id(payload, db)
+    images = _validate_images(payload)
+    characteristics = _validate_characteristics(payload)
+
+    product.title = title
+    product.slug = str(payload.get("slug") or _slugify(title))
+    product.description = description
+    product.category_id = category.id
+    product.images = [
+        ProductImage(url=image["url"], ordering=image["ordering"]) for image in images
+    ]
+    product.characteristics = [
+        CharacteristicValue(name=item["name"], value=item["value"])
+        for item in characteristics
+    ]
+
+    event_payload: dict[str, Any] | None = None
+    outbox_event = None
+    if product.status in {"MODERATED", "BLOCKED"}:
+        product.status = "ON_MODERATION"
+        event_payload = build_product_event(product, "EDITED")
+        outbox_event = record_outbox_event(db, event_payload)
+
+    db.commit()
+    db.refresh(product)
+    dispatch_and_mark_sent(db, moderation_dispatcher, event_payload, outbox_event)
+    return _serialize_product(product)
