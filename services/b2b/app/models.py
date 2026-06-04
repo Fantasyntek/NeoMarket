@@ -181,6 +181,37 @@ class B2COutboxEvent(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ReserveOperation(Base):
+    __tablename__ = "reserve_operations"
+
+    idempotency_key: Mapped[str] = mapped_column(String(36), primary_key=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class UnreserveOperation(Base):
+    __tablename__ = "unreserve_operations"
+
+    order_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ProcessedModerationEvent(Base):
+    __tablename__ = "processed_moderation_events"
+
+    idempotency_key: Mapped[str] = mapped_column(String(36), primary_key=True)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Invoice(Base):
     __tablename__ = "invoices"
 
