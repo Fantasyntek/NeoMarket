@@ -37,6 +37,7 @@ class Product(Base):
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     blocking_reason_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    blocking_reason_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     moderator_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -58,6 +59,9 @@ class Product(Base):
         back_populates="product", cascade="all, delete-orphan"
     )
     skus: Mapped[list[SKU]] = relationship(
+        back_populates="product", cascade="all, delete-orphan"
+    )
+    field_reports: Mapped[list[ProductFieldReport]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
     )
 
@@ -129,6 +133,20 @@ class SKUCharacteristicValue(Base):
     value: Mapped[str] = mapped_column(Text, nullable=False)
 
     sku: Mapped[SKU] = relationship(back_populates="characteristics")
+
+
+class ProductFieldReport(Base):
+    __tablename__ = "product_field_reports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    product_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("products.id"), nullable=False, index=True
+    )
+    field_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    sku_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    comment: Mapped[str] = mapped_column(Text, nullable=False)
+
+    product: Mapped[Product] = relationship(back_populates="field_reports")
 
 
 class ModerationOutboxEvent(Base):

@@ -14,6 +14,10 @@ from app.errors import api_error
 
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret")
+INCOMING_SERVICE_KEY = os.getenv(
+    "B2B_SERVICE_KEY",
+    os.getenv("MODERATION_SERVICE_KEY", "dev-service-key"),
+)
 
 
 @dataclass(frozen=True)
@@ -78,4 +82,8 @@ def require_seller(authorization: str | None = Header(default=None)) -> CurrentS
         raise api_error(401, "UNAUTHORIZED", "seller_id claim is required")
 
     return CurrentSeller(seller_id=seller_id)
+
+
+def is_valid_service_key(value: str | None) -> bool:
+    return bool(value) and hmac.compare_digest(value, INCOMING_SERVICE_KEY)
 
