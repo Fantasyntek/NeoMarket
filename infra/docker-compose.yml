@@ -14,6 +14,16 @@ services:
       - "8000:8000"
     volumes:
       - b2b-data:/data
+  b2c:
+    build:
+      context: ../services/b2c
+    environment:
+      B2B_URL: http://b2b:8000
+      B2B_SERVICE_KEY: dev-service-key
+    ports:
+      - "8001:8000"
+    depends_on:
+      - b2b
 
 volumes:
   b2b-data:
