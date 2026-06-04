@@ -48,3 +48,7 @@ For `GET /products/{id}` I considered one endpoint with an explicit auth-mode br
 ## US-B2B-06 ADR
 
 For validating invoice items I considered checking SKU status in a serializer, in the endpoint view, or in model-level hooks. I chose endpoint-level validation because the rule depends on both the JWT seller and the related product status, so the code stays readable next to the invoice creation transaction. This keeps ownership and `MODERATED` checks hard to miss for the current API surface. A serializer would be cleaner in a DRF-style stack, while model hooks are easier to bypass or make too implicit when future admin and service flows create invoices differently.
+
+## US-B2B-07 ADR
+
+For separating seller-list and B2C catalog behavior I considered two different URLs, one URL with a branch by auth header, and two view functions selected by a router layer. I chose one `GET /products` endpoint with an explicit `X-Service-Key` branch because the canon uses the same URL and the mode boundary is easy to see at the top of the handler. The B2C branch uses a separate serializer that omits `cost_price` and `reserved_quantity`, which lowers the risk of leaking seller-only fields. Separate URLs would be clearer operationally, but they would drift from the canon contract and make adding shared filters more duplicative.
