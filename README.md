@@ -92,3 +92,7 @@ For catalog facets I considered SQL `GROUP BY` on each request in the source cat
 ## US-CAT-02 ADR
 
 For catalog search I considered SQL `LIKE`/`icontains`, PostgreSQL `pg_trgm`, and full-text `SearchVector`. I chose the `LIKE`/`icontains` style for the MVP because B2C proxies the `search` parameter to B2B and only needs lightweight length validation plus deterministic filtering for the current response shape. `pg_trgm` would improve typo tolerance and ranking, but it requires PostgreSQL-specific setup that is unnecessary for the first search flow. `SearchVector` can provide better relevance for large text fields, but it is more complex to tune and maintain before the catalog schema stabilizes.
+
+## US-CAT-03 ADR
+
+For separating B2B and B2C product representations I considered a dedicated public serializer, view-level field filtering, and a separate B2B endpoint returning only buyer-safe data. I chose a dedicated public serializer in B2C because it explicitly whitelists buyer-visible fields and prevents new internal B2B fields from leaking by default. View-level filtering is quicker but easier to miss when nested SKU fields change. A separate B2B endpoint would also reduce leakage risk, but it adds another cross-service contract before the product-card response shape is stable.
