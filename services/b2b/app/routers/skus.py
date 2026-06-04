@@ -7,9 +7,17 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentSeller, require_seller
+from app.b2c import (
+    B2CDispatcher,
+    build_sku_out_of_stock_event,
+    dispatch_b2c_and_mark_sent,
+    get_b2c_dispatcher,
+    record_b2c_outbox_event,
+)
 from app.database import get_db
 from app.errors import api_error
 from app.models import (
+    B2COutboxEvent,
     ModerationOutboxEvent,
     Product,
     SKU,
@@ -223,3 +231,64 @@ def update_sku(
     db.refresh(sku)
     dispatch_and_mark_sent(db, moderation_dispatcher, event_payload, outbox_event)
     return _serialize_sku(sku)
+
+
+@router.delete("/skus/{sku_id}")
+def delete_sku(
+    sku_id: str,
+    current_seller: CurrentSeller = Depends(require_seller),
+    db: Session = Depends(get_db),
+    moderation_dispatcher: ModerationDispatcher = Depends(get_moderation_dispatcher),
+    b2c_dispatcher: B2CDispatcher = Depends(get_b2c_dispatcher),
+) -> dict[str, bool]:
+    try:
+        normalized_sku_id = str(UUID(sku_id))
+    except ValueError:
+        raise api_error(400, "INVALID_REQUEST", "sku_id must be a valid UUID")
+
+    sku = db.get(SKU, normalized_sku_id)
+    if sku is None:
+        raise api_error(404, "NOT_FOUND", "SKU not found")
+
+    product = sku.product
+    if product.seller_id != current_seller.seller_id:
+        raise api_error(
+            403,
+            "NOT_OWNER",
+            "SKU does not belong to the authenticated seller",
+        )
+    if product.status == "HARD_BLOCKED":
+        raise api_error(403, "FORBIDDEN", "Cannot delete SKU of hard-blocked product")
+    if sku.reserved_quantity > 0:
+        raise api_error(409, "CONFLICT", "Cannot delete SKU with active reserves")
+
+    remaining_skus_count = (
+        db.query(SKU)
+        .filter(SKU.product_id == product.id, SKU.id != sku.id)
+        .count()
+    )
+    moderation_payload: dict[str, Any] | None = None
+    moderation_outbox_event: ModerationOutboxEvent | None = None
+    b2c_payload: dict[str, Any] | None = None
+    b2c_outbox_event: B2COutboxEvent | None = None
+
+    if remaining_skus_count == 0 and product.status == "ON_MODERATION":
+        product.status = "CREATED"
+        moderation_payload = build_product_event(product, "DELETED")
+        moderation_outbox_event = record_outbox_event(db, moderation_payload)
+
+    if product.status == "MODERATED" and sku.active_quantity > 0:
+        b2c_payload = build_sku_out_of_stock_event(sku.id, product.id)
+        b2c_outbox_event = record_b2c_outbox_event(db, b2c_payload)
+
+    db.delete(sku)
+    db.commit()
+
+    dispatch_and_mark_sent(
+        db,
+        moderation_dispatcher,
+        moderation_payload,
+        moderation_outbox_event,
+    )
+    dispatch_b2c_and_mark_sent(db, b2c_dispatcher, b2c_payload, b2c_outbox_event)
+    return {"ok": True}
