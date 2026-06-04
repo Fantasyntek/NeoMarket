@@ -4,10 +4,17 @@ import re
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentSeller, require_seller
+from app.b2c import (
+    B2CDispatcher,
+    build_product_deleted_event,
+    dispatch_b2c_and_mark_sent,
+    get_b2c_dispatcher,
+    record_b2c_outbox_event,
+)
 from app.database import get_db
 from app.errors import api_error
 from app.models import Category, CharacteristicValue, Product, ProductImage
@@ -21,6 +28,9 @@ from app.moderation import (
 
 
 router = APIRouter(prefix="/api/v1", tags=["Products"])
+
+
+PRODUCT_STATUSES = {"CREATED", "ON_MODERATION", "MODERATED", "BLOCKED", "HARD_BLOCKED"}
 
 
 def _require_string(payload: dict[str, Any], field: str, max_length: int) -> str:
@@ -99,6 +109,13 @@ def _slugify(title: str) -> str:
     return slug or "product"
 
 
+def _normalize_product_id(product_id: str) -> str:
+    try:
+        return str(UUID(product_id))
+    except ValueError:
+        raise api_error(400, "INVALID_REQUEST", "product_id must be a valid UUID")
+
+
 def _serialize_product(product: Product) -> dict[str, Any]:
     return {
         "id": product.id,
@@ -137,6 +154,53 @@ def _serialize_product(product: Product) -> dict[str, Any]:
         ],
         "created_at": product.created_at.isoformat(),
         "updated_at": product.updated_at.isoformat(),
+    }
+
+
+def _serialize_product_list_item(product: Product) -> dict[str, Any]:
+    return {
+        "id": product.id,
+        "title": product.title,
+        "status": product.status,
+        "category": {"id": product.category.id, "name": product.category.name},
+        "images": [
+            {"url": image.url, "ordering": image.ordering}
+            for image in product.images
+        ],
+        "skus_count": len(product.skus),
+        "total_active_quantity": sum(sku.active_quantity for sku in product.skus),
+        "created_at": product.created_at.isoformat(),
+    }
+
+
+@router.get("/products")
+def list_products(
+    current_seller: CurrentSeller = Depends(require_seller),
+    db: Session = Depends(get_db),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    status: str | None = None,
+    search: str | None = None,
+) -> dict[str, Any]:
+    if status is not None and status not in PRODUCT_STATUSES:
+        raise api_error(400, "INVALID_REQUEST", "status is invalid")
+
+    query = db.query(Product).filter(
+        Product.seller_id == current_seller.seller_id,
+        Product.deleted.is_(False),
+    )
+    if status is not None:
+        query = query.filter(Product.status == status)
+    if search is not None and search.strip():
+        query = query.filter(Product.title.ilike(f"%{search.strip()}%"))
+
+    total_count = query.count()
+    products = query.order_by(Product.created_at.desc()).offset(offset).limit(limit).all()
+    return {
+        "items": [_serialize_product_list_item(product) for product in products],
+        "total_count": total_count,
+        "limit": limit,
+        "offset": offset,
     }
 
 
@@ -182,10 +246,7 @@ def update_product(
     db: Session = Depends(get_db),
     moderation_dispatcher: ModerationDispatcher = Depends(get_moderation_dispatcher),
 ) -> dict[str, Any]:
-    try:
-        normalized_product_id = str(UUID(product_id))
-    except ValueError:
-        raise api_error(400, "INVALID_REQUEST", "product_id must be a valid UUID")
+    normalized_product_id = _normalize_product_id(product_id)
 
     product = db.get(Product, normalized_product_id)
     if product is None:
@@ -228,3 +289,43 @@ def update_product(
     db.refresh(product)
     dispatch_and_mark_sent(db, moderation_dispatcher, event_payload, outbox_event)
     return _serialize_product(product)
+
+
+@router.delete("/products/{product_id}")
+def delete_product(
+    product_id: str,
+    current_seller: CurrentSeller = Depends(require_seller),
+    db: Session = Depends(get_db),
+    moderation_dispatcher: ModerationDispatcher = Depends(get_moderation_dispatcher),
+    b2c_dispatcher: B2CDispatcher = Depends(get_b2c_dispatcher),
+) -> dict[str, bool]:
+    normalized_product_id = _normalize_product_id(product_id)
+    product = db.get(Product, normalized_product_id)
+    if product is None:
+        raise api_error(404, "NOT_FOUND", "Product not found")
+    if product.seller_id != current_seller.seller_id:
+        raise api_error(
+            403,
+            "NOT_OWNER",
+            "Product does not belong to the authenticated seller",
+        )
+    if product.deleted:
+        raise api_error(400, "INVALID_REQUEST", "Product already deleted")
+
+    sku_ids = [sku.id for sku in product.skus]
+    product.deleted = True
+
+    moderation_payload = build_product_event(product, "DELETED")
+    moderation_outbox_event = record_outbox_event(db, moderation_payload)
+    b2c_payload = build_product_deleted_event(product, sku_ids)
+    b2c_outbox_event = record_b2c_outbox_event(db, b2c_payload)
+
+    db.commit()
+    dispatch_and_mark_sent(
+        db,
+        moderation_dispatcher,
+        moderation_payload,
+        moderation_outbox_event,
+    )
+    dispatch_b2c_and_mark_sent(db, b2c_dispatcher, b2c_payload, b2c_outbox_event)
+    return {"ok": True}
