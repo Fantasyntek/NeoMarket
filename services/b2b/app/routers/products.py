@@ -459,6 +459,8 @@ def delete_product(
             "NOT_OWNER",
             "Product does not belong to the authenticated seller",
         )
+    if product.status == "HARD_BLOCKED":
+        raise api_error(403, "FORBIDDEN", "Cannot delete hard-blocked product")
     if product.deleted:
         raise api_error(400, "INVALID_REQUEST", "Product already deleted")
 

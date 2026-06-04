@@ -52,3 +52,11 @@ For validating invoice items I considered checking SKU status in a serializer, i
 ## US-B2B-07 ADR
 
 For separating seller-list and B2C catalog behavior I considered two different URLs, one URL with a branch by auth header, and two view functions selected by a router layer. I chose one `GET /products` endpoint with an explicit `X-Service-Key` branch because the canon uses the same URL and the mode boundary is easy to see at the top of the handler. The B2C branch uses a separate serializer that omits `cost_price` and `reserved_quantity`, which lowers the risk of leaking seller-only fields. Separate URLs would be clearer operationally, but they would drift from the canon contract and make adding shared filters more duplicative.
+
+## US-B2B-08 ADR
+
+For all-or-nothing reservation I considered a single transaction with `SELECT FOR UPDATE`, optimistic locking with retry, and a two-phase commit style flow. I chose one transaction with row locking because it is the most direct fit for decrementing multiple SKU counters together and keeps the rollback rule readable. It performs well for the expected contention pattern because only the touched SKU rows are locked, while optimistic retries would add more edge cases around repeated B2C checkout attempts. Two-phase commit is unnecessary here because the inventory mutation and idempotency record live in the same database.
+
+## US-B2B-09 ADR
+
+For moderation event idempotency I considered a separate `processed_events` table keyed by `idempotency_key`, storing the last event key on `Product`, and an upsert guarded by product/status conditions. I chose a separate processed moderation events table because the database primary key gives a simple uniqueness boundary and keeps duplicate detection independent of the product's current status. This has lower race-condition risk than checking mutable product fields and is easier to support as more moderation event types appear. A conditional upsert could be compact, but it would make the state transition rules harder to read and test.
