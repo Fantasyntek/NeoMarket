@@ -44,3 +44,7 @@ For the two cascade events on product deletion I considered two synchronous POST
 ## US-B2B-05 ADR
 
 For `GET /products/{id}` I considered one endpoint with an explicit auth-mode branch, two separate view functions, and a reusable permission class. I chose one endpoint with a small branch between seller JWT and `X-Service-Key` modes because it keeps the shared product lookup and response shape in one place. Seller mode includes `cost_price` and `reserved_quantity`, while service-key mode omits those seller-only SKU fields to reduce leakage risk. Two views would duplicate serialization logic, and a permission abstraction would be more useful once more endpoints need the same dual-mode access rule.
+
+## US-B2B-06 ADR
+
+For validating invoice items I considered checking SKU status in a serializer, in the endpoint view, or in model-level hooks. I chose endpoint-level validation because the rule depends on both the JWT seller and the related product status, so the code stays readable next to the invoice creation transaction. This keeps ownership and `MODERATED` checks hard to miss for the current API surface. A serializer would be cleaner in a DRF-style stack, while model hooks are easier to bypass or make too implicit when future admin and service flows create invoices differently.
