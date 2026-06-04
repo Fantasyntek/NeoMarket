@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentSeller, decode_access_token, is_valid_service_key, require_seller
@@ -221,18 +222,27 @@ def _serialize_product(product: Product, include_sensitive: bool = True) -> dict
     }
 
 
-def _serialize_product_list_item(product: Product) -> dict[str, Any]:
+def _serialize_product_list_item(
+    product: Product,
+    skus_count: int | None = None,
+    total_active_quantity: int | None = None,
+) -> dict[str, Any]:
     return {
         "id": product.id,
         "title": product.title,
         "status": product.status,
+        "deleted": product.deleted,
         "category": {"id": product.category.id, "name": product.category.name},
         "images": [
             {"url": image.url, "ordering": image.ordering}
             for image in product.images
         ],
-        "skus_count": len(product.skus),
-        "total_active_quantity": sum(sku.active_quantity for sku in product.skus),
+        "skus_count": int(skus_count if skus_count is not None else len(product.skus)),
+        "total_active_quantity": int(
+            total_active_quantity
+            if total_active_quantity is not None
+            else sum(sku.active_quantity for sku in product.skus)
+        ),
         "created_at": product.created_at.isoformat(),
     }
 
@@ -314,19 +324,41 @@ def list_products(
     if status is not None and status not in PRODUCT_STATUSES:
         raise api_error(400, "INVALID_REQUEST", "status is invalid")
 
-    query = db.query(Product).filter(
-        Product.seller_id == current_seller.seller_id,
-        Product.deleted.is_(False),
-    )
+    query = db.query(Product).filter(Product.seller_id == current_seller.seller_id)
     if status is not None:
         query = query.filter(Product.status == status)
     if search is not None and search.strip():
         query = query.filter(Product.title.ilike(f"%{search.strip()}%"))
 
     total_count = query.count()
-    products = query.order_by(Product.created_at.desc()).offset(offset).limit(limit).all()
+    skus_count_query = (
+        select(func.count(SKU.id))
+        .where(SKU.product_id == Product.id)
+        .correlate(Product)
+        .scalar_subquery()
+    )
+    total_active_quantity_query = (
+        select(func.coalesce(func.sum(SKU.active_quantity), 0))
+        .where(SKU.product_id == Product.id)
+        .correlate(Product)
+        .scalar_subquery()
+    )
+    rows = (
+        query.with_entities(
+            Product,
+            skus_count_query.label("skus_count"),
+            total_active_quantity_query.label("total_active_quantity"),
+        )
+        .order_by(Product.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     return {
-        "items": [_serialize_product_list_item(product) for product in products],
+        "items": [
+            _serialize_product_list_item(product, skus_count, total_active_quantity)
+            for product, skus_count, total_active_quantity in rows
+        ],
         "total_count": total_count,
         "limit": limit,
         "offset": offset,

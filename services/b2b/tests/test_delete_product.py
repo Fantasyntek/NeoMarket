@@ -161,7 +161,7 @@ def test_delete_others_product_returns_403(
     assert product.deleted is False
 
 
-def test_deleted_product_not_in_seller_list(
+def test_deleted_product_visible_with_deleted_flag_in_seller_list(
     client: TestClient, db_session: Session, auth_headers: dict[str, str]
 ) -> None:
     deleted_product = create_product_fixture(
@@ -180,5 +180,7 @@ def test_deleted_product_not_in_seller_list(
     body = response.json()
     item_ids = [item["id"] for item in body["items"]]
     assert visible_product.id in item_ids
-    assert deleted_product.id not in item_ids
-    assert body["total_count"] == 1
+    assert deleted_product.id in item_ids
+    deleted_item = next(item for item in body["items"] if item["id"] == deleted_product.id)
+    assert deleted_item["deleted"] is True
+    assert body["total_count"] == 2
