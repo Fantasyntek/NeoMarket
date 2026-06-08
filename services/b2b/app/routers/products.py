@@ -414,7 +414,11 @@ def delete_product(
     product.deleted = True
 
     moderation_payload = build_product_event(product, "DELETED")
-    moderation_outbox_event = record_outbox_event(db, moderation_payload)
+    moderation_outbox_event = record_outbox_event(
+        db,
+        moderation_payload,
+        seller_id=product.seller_id,
+    )
     b2c_payload = build_product_deleted_event(product, sku_ids)
     b2c_outbox_event = record_b2c_outbox_event(db, b2c_payload)
 

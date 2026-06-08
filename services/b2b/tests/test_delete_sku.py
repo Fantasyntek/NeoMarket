@@ -135,8 +135,8 @@ def test_last_sku_on_moderation_transitions_product_to_created(
     assert product.status == "CREATED"
     assert db_session.get(SKU, sku.id) is None
     assert len(fake_moderation.events) == 1
-    assert fake_moderation.events[0]["event"] == "DELETED"
-    assert fake_moderation.events[0]["product_id"] == product.id
+    assert fake_moderation.events[0]["event_type"] == "PRODUCT_DELETED"
+    assert fake_moderation.events[0]["payload"]["product_id"] == product.id
     assert db_session.query(ModerationOutboxEvent).one().status == "SENT"
 
 

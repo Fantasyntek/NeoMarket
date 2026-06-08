@@ -95,11 +95,10 @@ def test_delete_emits_event_to_moderation(
     assert response.status_code == 200
     assert len(fake_moderation.events) == 1
     event = fake_moderation.events[0]
-    assert event["event"] == "DELETED"
-    assert event["product_id"] == product.id
-    assert event["seller_id"] == TEST_SELLER_ID
+    assert event["event_type"] == "PRODUCT_DELETED"
+    assert event["payload"] == {"product_id": product.id}
     assert event["idempotency_key"]
-    assert event["date"].endswith("Z")
+    assert event["occurred_at"].endswith("Z")
     assert db_session.query(ModerationOutboxEvent).one().status == "SENT"
 
 

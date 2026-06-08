@@ -84,11 +84,13 @@ def test_first_sku_emits_created_event_to_moderation(
     assert response.status_code == 201
     assert len(fake_moderation.events) == 1
     event = fake_moderation.events[0]
-    assert event["event"] == "CREATED"
-    assert event["product_id"] == product.id
-    assert event["seller_id"] == TEST_SELLER_ID
+    assert event["event_type"] == "PRODUCT_CREATED"
+    assert event["payload"]["product_id"] == product.id
+    assert event["payload"]["seller_id"] == TEST_SELLER_ID
+    assert event["payload"]["json_after"]["status"] == "ON_MODERATION"
+    assert event["payload"]["json_after"]["skus"][0]["id"] == response.json()["id"]
     assert event["idempotency_key"]
-    assert event["date"].endswith("Z")
+    assert event["occurred_at"].endswith("Z")
 
     outbox_event = db_session.query(ModerationOutboxEvent).one()
     assert outbox_event.status == "SENT"
@@ -148,8 +150,9 @@ def test_add_sku_to_moderated_product_returns_to_on_moderation(
     assert response.status_code == 201
     assert product.status == "ON_MODERATION"
     assert len(fake_moderation.events) == 1
-    assert fake_moderation.events[0]["event"] == "EDITED"
-    assert fake_moderation.events[0]["product_id"] == product.id
+    assert fake_moderation.events[0]["event_type"] == "PRODUCT_EDITED"
+    assert fake_moderation.events[0]["payload"]["product_id"] == product.id
+    assert "json_before" in fake_moderation.events[0]["payload"]
     assert db_session.query(ModerationOutboxEvent).one().status == "SENT"
 
 

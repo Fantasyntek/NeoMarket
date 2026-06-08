@@ -105,8 +105,8 @@ def test_edit_moderated_product_returns_to_on_moderation(
     assert response.json()["status"] == "ON_MODERATION"
     assert product.status == "ON_MODERATION"
     assert len(fake_moderation.events) == 1
-    assert fake_moderation.events[0]["event"] == "EDITED"
-    assert fake_moderation.events[0]["product_id"] == product.id
+    assert fake_moderation.events[0]["event_type"] == "PRODUCT_EDITED"
+    assert fake_moderation.events[0]["payload"]["product_id"] == product.id
     assert db_session.query(ModerationOutboxEvent).one().status == "SENT"
 
 
@@ -127,7 +127,7 @@ def test_edit_blocked_product_returns_to_on_moderation(
     assert product.status == "ON_MODERATION"
     assert response.json()["status"] == "ON_MODERATION"
     assert len(fake_moderation.events) == 1
-    assert fake_moderation.events[0]["event"] == "EDITED"
+    assert fake_moderation.events[0]["event_type"] == "PRODUCT_EDITED"
 
 
 def test_reserves_preserved_after_sku_edit(
@@ -150,7 +150,7 @@ def test_reserves_preserved_after_sku_edit(
     assert sku.reserved_quantity == 7
     assert product.status == "ON_MODERATION"
     assert len(fake_moderation.events) == 1
-    assert fake_moderation.events[0]["event"] == "EDITED"
+    assert fake_moderation.events[0]["event_type"] == "PRODUCT_EDITED"
 
 
 def test_edit_hard_blocked_returns_403(

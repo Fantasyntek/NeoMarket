@@ -161,7 +161,8 @@ def create_sku(
         SKUCharacteristicValue(name=item["name"], value=item["value"])
         for item in characteristics
     ]
-    db.add(sku)
+    product.skus.append(sku)
+    db.flush()
 
     if was_without_skus and product.status == "CREATED":
         product.status = "ON_MODERATION"
@@ -279,7 +280,11 @@ def delete_sku(
     if remaining_skus_count == 0 and product.status == "ON_MODERATION":
         product.status = "CREATED"
         moderation_payload = build_product_event(product, "DELETED")
-        moderation_outbox_event = record_outbox_event(db, moderation_payload)
+        moderation_outbox_event = record_outbox_event(
+            db,
+            moderation_payload,
+            seller_id=product.seller_id,
+        )
 
     if product.status == "MODERATED" and sku.active_quantity > 0:
         b2c_payload = build_sku_out_of_stock_event(sku.id, product.id)
