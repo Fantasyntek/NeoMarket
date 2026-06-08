@@ -196,3 +196,11 @@ For order IDOR protection I considered loading by order ID and checking ownershi
 ## B2C Order History
 
 Authenticated buyers can list their own orders through paginated `GET /api/v1/orders` with an optional status filter. List items contain summary metadata and the number of order lines, while `GET /api/v1/orders/{order_id}` returns immutable `OrderItem` snapshots without calling B2B. Every query is scoped by the JWT `sub` claim; `user_id` query parameters cannot widen access, and foreign orders are indistinguishable from missing orders.
+
+## US-ORD-03 ADR
+
+For asynchronous unreserve retries I considered a Celery task with exponential backoff, a database-backed command run by cron, and Django Q. I chose a persistent retry table plus a lightweight command because it requires no broker in the current FastAPI environment and retains cancellation intent across service restarts. Celery would provide richer scheduling and monitoring but adds Redis or RabbitMQ deployment complexity, while Django Q does not match the current framework. Each failed attempt advances `next_attempt_at` with exponential backoff, and a successful retry atomically moves the order from `CANCEL_PENDING` to `CANCELLED`.
+
+## B2C Order Cancellation
+
+Buyers cancel `CREATED` or `PAID` orders through `POST /api/v1/orders/{order_id}/cancel`. B2C sends the persisted order quantities to B2B `POST /api/v1/inventory/unreserve`; success produces `CANCELLED`, while timeout or a server error produces `CANCEL_PENDING` and a durable retry record. Pending retries can be processed with `python -m app.retry_cancellations`, making the scaffold suitable for cron without losing work during restarts. Ownership uses the same scoped lookup as order details, so foreign orders return `404`.

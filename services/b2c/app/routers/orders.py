@@ -18,6 +18,10 @@ from app.b2b_client import (
     B2BUnavailableError,
     get_b2b_client,
 )
+from app.cancellation_retry import (
+    cancellation_items,
+    schedule_cancellation_retry,
+)
 from app.database import get_db
 from app.errors import api_error
 from app.models import Order, OrderItem
@@ -268,6 +272,52 @@ def get_order(
         order_id=order_id,
         user_id=current_user.user_id,
     )
+    return _serialize_order(db, order)
+
+
+@router.post("/{order_id}/cancel", response_model=None)
+def cancel_order(
+    order_id: str,
+    current_user: CurrentUser = Depends(require_user),
+    db: Session = Depends(get_db),
+    b2b_client: B2BClient = Depends(get_b2b_client),
+) -> dict[str, Any] | JSONResponse:
+    order = _owned_order(
+        db,
+        order_id=order_id,
+        user_id=current_user.user_id,
+    )
+    if order.status not in {"CREATED", "PAID"}:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "code": "CANCEL_NOT_ALLOWED",
+                "message": f"Cancellation is not allowed for status {order.status}",
+                "current_status": order.status,
+            },
+        )
+
+    items = cancellation_items(db, order.id)
+    try:
+        b2b_client.unreserve(order_id=order.id, items=items)
+    except B2BUnavailableError as exc:
+        schedule_cancellation_retry(db, order, exc)
+        db.refresh(order)
+        return _serialize_order(db, order)
+    except B2BResponseError as exc:
+        if exc.status_code >= 500:
+            schedule_cancellation_retry(db, order, exc)
+            db.refresh(order)
+            return _serialize_order(db, order)
+        raise api_error(
+            exc.status_code,
+            str(exc.payload.get("code", "B2B_ERROR")),
+            str(exc.payload.get("message", "B2B request failed")),
+        )
+
+    order.status = "CANCELLED"
+    db.commit()
+    db.refresh(order)
     return _serialize_order(db, order)
 
 
