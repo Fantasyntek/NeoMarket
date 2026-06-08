@@ -28,6 +28,16 @@ def test_http_b2b_client_uses_public_sku_routes(monkeypatch: Any) -> None:
 
     client.get_sku("660e8400-e29b-41d4-a716-446655440001")
     client.batch_skus(["660e8400-e29b-41d4-a716-446655440001"])
+    client.reserve(
+        idempotency_key="11111111-2222-3333-4444-555555555555",
+        order_id="66666666-7777-8888-9999-000000000000",
+        items=[
+            {
+                "sku_id": "660e8400-e29b-41d4-a716-446655440001",
+                "quantity": 2,
+            }
+        ],
+    )
 
     assert calls[0]["method"] == "get"
     assert calls[0]["url"].endswith(
@@ -37,6 +47,18 @@ def test_http_b2b_client_uses_public_sku_routes(monkeypatch: Any) -> None:
     assert calls[1]["url"].endswith("/api/v1/public/skus/batch")
     assert calls[1]["json"] == {
         "sku_ids": ["660e8400-e29b-41d4-a716-446655440001"]
+    }
+    assert calls[2]["method"] == "post"
+    assert calls[2]["url"].endswith("/api/v1/inventory/reserve")
+    assert calls[2]["json"] == {
+        "idempotency_key": "11111111-2222-3333-4444-555555555555",
+        "order_id": "66666666-7777-8888-9999-000000000000",
+        "items": [
+            {
+                "sku_id": "660e8400-e29b-41d4-a716-446655440001",
+                "quantity": 2,
+            }
+        ],
     }
     assert all(
         call["headers"] == {"X-Service-Key": "test-service-key"}

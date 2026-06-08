@@ -36,6 +36,15 @@ class B2BClient(Protocol):
     def batch_skus(self, sku_ids: list[str]) -> list[dict[str, Any]]:
         pass
 
+    def reserve(
+        self,
+        *,
+        idempotency_key: str,
+        order_id: str,
+        items: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        pass
+
     def list_categories(self) -> dict[str, Any]:
         pass
 
@@ -119,6 +128,23 @@ class HttpB2BClient:
             "post",
             "/api/v1/public/skus/batch",
             json={"sku_ids": sku_ids},
+        )
+
+    def reserve(
+        self,
+        *,
+        idempotency_key: str,
+        order_id: str,
+        items: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._request_public_sku(
+            "post",
+            "/api/v1/inventory/reserve",
+            json={
+                "idempotency_key": idempotency_key,
+                "order_id": order_id,
+                "items": items,
+            },
         )
 
     def _request_public_sku(

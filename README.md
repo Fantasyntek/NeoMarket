@@ -180,3 +180,11 @@ For collection membership I considered storing a UUID array on each collection, 
 ## B2C Product Collections
 
 The public `GET /api/v1/main/collections` endpoint returns active collection metadata without nested products. `GET /api/v1/collections/{collection_id}/products` reads ordered product UUIDs, enriches the requested page through the B2B public batch API, and returns unavailable UUIDs separately. Collections remain valid when every product is unavailable, and B2C never stores a product snapshot. The legacy OpenAPI route `GET /api/v1/catalog/collections` remains available as a flat metadata alias.
+
+## US-ORD-01 ADR
+
+For checkout idempotency I considered a unique index on `orders.idempotency_key`, a separate key-result cache table, and Redis with expiring keys. I chose the unique database index because it makes the database the final arbiter when two requests with the same key arrive concurrently and does not require another infrastructure component. The request hash prevents reuse of a key with a different checkout payload, while B2B receives the same key so its reserve operation is also idempotent. A separate cache or Redis could reduce database reads at higher traffic, but both add synchronization and recovery complexity for the MVP.
+
+## B2C Checkout
+
+Authenticated buyers create orders through `POST /api/v1/orders` with explicit SKU quantities and an idempotency key. B2C validates current product visibility and stock through the B2B public SKU batch endpoint, then performs one all-or-nothing call to `POST /api/v1/inventory/reserve`. Successful orders store immutable `unit_price`, `product_title`, and `sku_name` snapshots in `OrderItem` and move directly to `PAID`; failed reserves leave no order rows. The canonical body key and the OpenAPI `Idempotency-Key` header are both accepted, and retries return the existing order without reserving inventory again.
