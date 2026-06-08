@@ -204,3 +204,11 @@ For asynchronous unreserve retries I considered a Celery task with exponential b
 ## B2C Order Cancellation
 
 Buyers cancel `CREATED` or `PAID` orders through `POST /api/v1/orders/{order_id}/cancel`. B2C sends the persisted order quantities to B2B `POST /api/v1/inventory/unreserve`; success produces `CANCELLED`, while timeout or a server error produces `CANCEL_PENDING` and a durable retry record. Pending retries can be processed with `python -m app.retry_cancellations`, making the scaffold suitable for cron without losing work during restarts. Ownership uses the same scoped lookup as order details, so foreign orders return `404`.
+
+## US-ORD-04 ADR
+
+For event idempotency I considered a dedicated processed-events table, storing the latest key on each cart item, and Redis keys with TTL. I chose a dedicated table keyed by `idempotency_key` because one event can affect many cart rows and the database can commit the batch update and key atomically. Per-item keys duplicate data and cannot represent events that match no current cart rows, while Redis requires retention infrastructure and coordination with the SQL transaction. The `processed_at` index supports scheduled cleanup when retention limits are introduced, preventing unbounded disk growth without weakening duplicate protection inside the retention window.
+
+## B2C Product Events
+
+B2C receives `PRODUCT_BLOCKED`, `PRODUCT_DELETED`, and `SKU_OUT_OF_STOCK` through canonical `POST /api/v1/events/product` and updates matching cart rows with a single batch statement. Orders and their immutable price snapshots are never modified. Duplicate keys return success without applying the update again, and every request requires `X-Service-Key`. The OpenAPI `POST /api/v1/b2b/events` route and nested `event_type`/`payload` shape are supported by the same normalizer, while the flat canonical shape remains compatible with the current B2B dispatcher.

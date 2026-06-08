@@ -261,6 +261,7 @@ def _serialize_cart(
     for stored_item in stored_items:
         lookup = lookup_by_sku.get(stored_item.sku_id)
         if lookup is None:
+            unavailable_reason = stored_item.unavailable_reason or "PRODUCT_DELETED"
             response_items.append(
                 {
                     "id": stored_item.id,
@@ -273,7 +274,7 @@ def _serialize_cart(
                     "available_quantity": 0,
                     "is_available": False,
                     "available": False,
-                    "unavailable_reason": "PRODUCT_DELETED",
+                    "unavailable_reason": unavailable_reason,
                     "image": None,
                 }
             )
@@ -283,7 +284,10 @@ def _serialize_cart(
         product = lookup["product"]
         sku = lookup["sku"]
         available_quantity = _active_quantity(sku)
-        unavailable_reason = _unavailable_reason(product, available_quantity)
+        unavailable_reason = stored_item.unavailable_reason or _unavailable_reason(
+            product,
+            available_quantity,
+        )
         is_available = unavailable_reason is None
         unit_price = _effective_price(sku)
         line_total = unit_price * stored_item.quantity if is_available else 0
