@@ -120,3 +120,7 @@ Inventory reservation endpoints follow the B2B OpenAPI paths `POST /api/v1/inven
 ## B2B Inventory Fulfill Contract
 
 Delivered orders are finalized through `POST /api/v1/inventory/fulfill`. A successful request returns `{order_id, status: "FULFILLED", processed_at}`, and the complete response is stored by `order_id`. Idempotent retries therefore return the original processing timestamp without decreasing `reserved_quantity` twice.
+
+## B2C Catalog Product Contract
+
+B2C product routes use the `/api/v1/catalog/products` namespace for listing, detail, and similar products. The list accepts `q`, OpenAPI sort values, and singular `filter[...]` deep-object parameters, while all product serializers emit the shared `CatalogProductCard` fields. Product details add buyer-safe SKU data with `available_quantity`, and similar products return a flat array as required by the contract.

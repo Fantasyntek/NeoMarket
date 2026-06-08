@@ -15,9 +15,18 @@ class FakeB2BClient:
 
     def list_products(self, params: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(params)
+        search = str(params.get("search", "")).lower()
+        products = self.products
+        if search:
+            products = [
+                product
+                for product in products
+                if search in str(product.get("title", "")).lower()
+                or search in str(product.get("description", "")).lower()
+            ]
         return {
-            "items": self.products,
-            "total_count": len(self.products),
+            "items": products,
+            "total_count": len(products),
             "limit": params.get("limit", 100),
             "offset": params.get("offset", 0),
         }
@@ -40,7 +49,7 @@ def catalog_product(
         "description": description,
         "status": "MODERATED",
         "category": {"id": IOS_CATEGORY_ID, "name": "iOS"},
-        "images": [{"url": f"/s3/{product_id}.jpg", "ordering": 0}],
+        "images": [{"id": product_id, "url": f"/s3/{product_id}.jpg", "ordering": 0}],
         "characteristics": [{"name": "brand", "value": brand}],
         "skus": [
             {
@@ -79,7 +88,7 @@ def test_search_returns_matching_products(client: TestClient) -> None:
     ]
     fake_b2b = override_b2b(client, FakeB2BClient(products))
 
-    response = client.get("/api/v1/products", params={"search": "iphone"})
+    response = client.get("/api/v1/catalog/products", params={"q": "iphone"})
 
     assert response.status_code == 200
     body = response.json()
@@ -94,7 +103,7 @@ def test_search_returns_matching_products(client: TestClient) -> None:
 def test_short_query_returns_400(client: TestClient) -> None:
     fake_b2b = override_b2b(client, FakeB2BClient([]))
 
-    response = client.get("/api/v1/products", params={"search": "ip"})
+    response = client.get("/api/v1/catalog/products", params={"q": "ip"})
 
     assert response.status_code == 400
     assert response.json() == {
@@ -112,7 +121,7 @@ def test_special_chars_do_not_break_query(client: TestClient) -> None:
     )
     fake_b2b = override_b2b(client, FakeB2BClient([product]))
 
-    response = client.get("/api/v1/products", params={"search": "iPhone%15"})
+    response = client.get("/api/v1/catalog/products", params={"q": "iPhone%15"})
 
     assert response.status_code == 200
     body = response.json()
@@ -132,7 +141,7 @@ def test_empty_results_returns_200(client: TestClient) -> None:
     ]
     fake_b2b = override_b2b(client, FakeB2BClient(products))
 
-    response = client.get("/api/v1/products", params={"search": "iphone"})
+    response = client.get("/api/v1/catalog/products", params={"q": "iphone"})
 
     assert response.status_code == 200
     assert response.json() == {
