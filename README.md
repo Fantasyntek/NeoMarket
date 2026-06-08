@@ -128,3 +128,7 @@ B2C product routes use the `/api/v1/catalog/products` namespace for listing, det
 ## B2C Category Navigation Contract
 
 Category navigation exposes a flat `GET /api/v1/catalog/categories` response and a separate nested `GET /api/v1/catalog/categories/tree` response. Both representations include the required `level` and root-to-node `path` fields. The hierarchy is validated for missing parents and cycles before either representation is returned.
+
+## B2B Seller Product List Contract
+
+Seller product list items include the required `slug` and `category_id` fields in addition to aggregate SKU counters. Soft-deleted products are excluded by default and are returned only when `include_deleted=true`, matching the B2B OpenAPI contract. Seller ownership continues to come exclusively from the JWT claim, so query parameters cannot widen the result set.
