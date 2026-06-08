@@ -28,7 +28,18 @@ services:
       - b2c-data:/data
     depends_on:
       - b2b
+  moderation:
+    build:
+      context: ../services/moderation
+    environment:
+      B2B_TO_MODERATION_SERVICE_KEY: dev-service-key
+      DATABASE_URL: sqlite:////data/neomarket-moderation.db
+    ports:
+      - "8002:8000"
+    volumes:
+      - moderation-data:/data
 
 volumes:
   b2b-data:
   b2c-data:
+  moderation-data:

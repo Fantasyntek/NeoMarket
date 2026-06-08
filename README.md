@@ -16,6 +16,12 @@ python -m pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8001
 ```
 
+```bash
+cd services/moderation
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8002
+```
+
 ## Run Tests
 
 ```bash
@@ -28,6 +34,11 @@ cd services/b2c
 pytest -q
 ```
 
+```bash
+cd services/moderation
+pytest -q
+```
+
 ## Run With Docker
 
 ```bash
@@ -36,6 +47,7 @@ docker compose -f infra/docker-compose.yml up --build
 
 B2B will be available at `http://localhost:8000`.
 B2C will be available at `http://localhost:8001`.
+Moderation will be available at `http://localhost:8002`.
 
 ## US-B2B-01 ADR
 
@@ -220,3 +232,11 @@ For triggering fulfillment I considered a model save signal, an admin-only actio
 ## B2C Delivery Fulfillment
 
 `transition_order_to_delivered` is the lifecycle hook used when an administrator marks an order delivered. It persists `DELIVERED` and `delivered_at`, then calls B2B `POST /api/v1/inventory/fulfill` using immutable order quantities. Failures create a durable fulfillment retry without changing the delivered status; retries run with exponential backoff through `python -m app.retry_fulfillments`. Repeating the trigger sends the same `order_id`, relying on the existing B2B idempotency contract to avoid double deduction.
+
+## US-MOD-01 ADR
+
+For moderation history I considered storing `json_before` and `json_after`, storing only the latest full snapshot, and storing a field-level delta. I chose two full snapshots because moderators can inspect the exact before/after state directly and incident diagnosis does not require replaying a patch chain. A latest-only snapshot uses less space but loses evidence about the seller's changes, while deltas are compact but harder to reconstruct and validate when events are retried or arrive during review. JSON snapshots also preserve new product fields without requiring a moderation schema migration.
+
+## Moderation Product Events
+
+The Moderation service accepts B2B lifecycle events through OpenAPI `POST /api/v1/b2b/events` and canonical `POST /api/v1/events/product`, both protected by `X-Service-Key`. Created products enter `PENDING`; edits update snapshots and return completed reviews to the queue while preserving an active `IN_REVIEW` assignment; deleted products become `ARCHIVED` and leave the queue. Every event key is stored in `processed_product_events`, so network retries return success without changing the card twice. The payload matches the current B2B dispatcher with `PRODUCT_CREATED`, `PRODUCT_EDITED`, `PRODUCT_DELETED`, `occurred_at`, and nested before/after snapshots.
