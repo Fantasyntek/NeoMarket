@@ -148,3 +148,11 @@ For identifying the owner of a favorites list I considered accepting `user_id` f
 ## B2C Favorites
 
 Favorites are available to authenticated buyers through `POST`, `DELETE`, and `GET /api/v1/favorites`. B2C persists only `user_id`, `product_id`, and `added_at`; product cards are batch-enriched from the B2B public catalog on every list request, so blocked or deleted products are excluded without deleting the stored favorite. Adding an existing favorite returns `200`, deleting a missing favorite returns `204`, and `user_id` always comes from the signed JWT `sub` claim.
+
+## US-CART-02 ADR
+
+For storing subscription event preferences I considered PostgreSQL `ArrayField`, a normalized child table with one row per event type, and a JSON array on the subscription record. I chose a JSON field because it works with the current SQLite-backed B2C service and adding a new notification type does not require a schema migration. A child table would make filtering by event type more explicit at scale, while `ArrayField` provides convenient PostgreSQL queries but would tie the MVP to one database. Validation at the API boundary keeps the stored JSON limited to the supported `IN_STOCK` and `PRICE_DOWN` values.
+
+## B2C Product Subscriptions
+
+Authenticated buyers can create and remove notification subscriptions through `POST` and `DELETE /api/v1/favorites/{product_id}/subscribe`. Subscription creation validates `notify_on`, verifies that the product is currently visible through B2B, and returns `409` when the same user is already subscribed to the product. Unsubscribe is idempotent and returns `204`, while notification delivery remains outside the current scope. Ownership always comes from the signed JWT `sub` claim.

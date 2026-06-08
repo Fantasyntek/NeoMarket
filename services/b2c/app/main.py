@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from app.database import init_db
 from app.routers.catalog import router as catalog_router
 from app.routers.favorites import router as favorites_router
+from app.routers.subscriptions import router as subscriptions_router
 
 
 def make_lifespan(init_database: bool):
@@ -47,6 +48,7 @@ def create_app(init_database: bool = True) -> FastAPI:
 
     app.include_router(catalog_router)
     app.include_router(favorites_router)
+    app.include_router(subscriptions_router)
     return app
 
 
