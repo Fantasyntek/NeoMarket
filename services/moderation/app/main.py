@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.database import init_db
 from app.routers.product_events import router as product_events_router
+from app.routers.queue import router as queue_router
 
 
 def make_lifespan(init_database: bool):
@@ -45,6 +46,7 @@ def create_app(init_database: bool = True) -> FastAPI:
         )
 
     app.include_router(product_events_router)
+    app.include_router(queue_router)
     return app
 
 

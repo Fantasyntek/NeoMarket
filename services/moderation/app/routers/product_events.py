@@ -179,6 +179,7 @@ def _created(db: Session, event: ProductEvent) -> ProductModeration:
         product_id=event.product_id,
         seller_id=event.seller_id,
         category_id=event.category_id,
+        kind="CREATE",
         status="PENDING",
         queue_priority=event.queue_priority,
         json_before=None,
@@ -205,6 +206,7 @@ def _edited(db: Session, event: ProductEvent) -> ProductModeration:
         return card
 
     old_status = card.status
+    card.kind = "EDIT"
     card.seller_id = event.seller_id or card.seller_id
     card.category_id = event.category_id
     card.json_before = event.json_before or card.json_after
