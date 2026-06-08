@@ -1,7 +1,17 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -76,5 +86,49 @@ class CartItem(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class Banner(Base):
+    __tablename__ = "banners"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    image_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    link: Mapped[str] = mapped_column(String(500), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class BannerEvent(Base):
+    __tablename__ = "banner_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event IN ('impression', 'click')",
+            name="ck_banner_events_type",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    banner_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("banners.id"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    event: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
         nullable=False,
     )
