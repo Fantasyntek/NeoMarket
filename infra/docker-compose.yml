@@ -33,7 +33,9 @@ services:
       context: ../services/moderation
     environment:
       B2B_TO_MODERATION_SERVICE_KEY: dev-service-key
+      CLAIM_TTL_MINUTES: "30"
       DATABASE_URL: sqlite:////data/neomarket-moderation.db
+      JWT_SECRET: dev-secret
     ports:
       - "8002:8000"
     volumes:

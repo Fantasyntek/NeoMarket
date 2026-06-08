@@ -6,10 +6,12 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Index,
     Integer,
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,6 +34,13 @@ class ProductModeration(Base):
             "queue_priority >= 1 AND queue_priority <= 4",
             name="ck_product_moderation_queue_priority",
         ),
+        Index(
+            "uq_product_moderation_active_moderator",
+            "moderator_id",
+            unique=True,
+            sqlite_where=text("status = 'IN_REVIEW'"),
+            postgresql_where=text("status = 'IN_REVIEW'"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
@@ -43,12 +52,22 @@ class ProductModeration(Base):
     )
     seller_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     category_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="CREATE")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="PENDING")
     queue_priority: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     json_before: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     json_after: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     total_active_quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     moderator_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    claim_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
     blocking_reason_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     moderator_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

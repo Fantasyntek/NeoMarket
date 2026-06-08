@@ -240,3 +240,11 @@ For moderation history I considered storing `json_before` and `json_after`, stor
 ## Moderation Product Events
 
 The Moderation service accepts B2B lifecycle events through OpenAPI `POST /api/v1/b2b/events` and canonical `POST /api/v1/events/product`, both protected by `X-Service-Key`. Created products enter `PENDING`; edits update snapshots and return completed reviews to the queue while preserving an active `IN_REVIEW` assignment; deleted products become `ARCHIVED` and leave the queue. Every event key is stored in `processed_product_events`, so network retries return success without changing the card twice. The payload matches the current B2B dispatcher with `PRODUCT_CREATED`, `PRODUCT_EDITED`, `PRODUCT_DELETED`, `occurred_at`, and nested before/after snapshots.
+
+## US-MOD-02 ADR
+
+For concurrent queue claims I considered `SELECT FOR UPDATE SKIP LOCKED`, a Redis distributed lock, and a dedicated queue service. I chose a database transaction with `SKIP LOCKED` on PostgreSQL plus a conditional status update, because it keeps the queue state and ownership change atomic without adding another dependency. Redis would require recovery logic when the lock and database disagree, while a separate queue service is excessive for the current workload. Claims have a configurable TTL and expired `IN_REVIEW` cards are returned to `PENDING`, so a moderator failure does not permanently hide a card.
+
+## Moderation Queue Claim
+
+Moderators claim work through OpenAPI `POST /api/v1/queue/claim` or the canonical alias `POST /api/v1/product-moderation/get-next` using a Bearer JWT. The queue is ordered by `queue_priority` from 1 to 4 and then FIFO by creation time; optional `queue_priority` and `category_ids` filters are supported. Claiming atomically changes the card to `IN_REVIEW`, records the moderator and lease timestamps, and returns `204` when no matching card exists. A moderator cannot hold two active cards, and expired claims are released automatically using `CLAIM_TTL_MINUTES` (30 by default).
