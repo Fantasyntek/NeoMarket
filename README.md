@@ -164,3 +164,11 @@ For guest cart identity I considered an `X-Session-Id` header, an HTTP-only cook
 ## B2C Cart
 
 The cart stores only identity, product/SKU references, and quantity; current prices, stock, and `unavailable_reason` are calculated from B2B on every response. Guests use `X-Session-Id`, authenticated buyers use JWT `sub`, and a request carrying both automatically merges the guest cart into the user cart. Adding an existing SKU increments quantity without reserving inventory, unavailable lines remain visible with zero `line_total`, and only available lines are included in `checkout_payload`. B2B exposes service-key protected SKU lookup and batch endpoints so out-of-stock variants can be enriched without exposing seller-only fields.
+
+## US-CART-04 ADR
+
+For CTR analytics I considered inserting one relational row per request, accepting event batches and inserting them in one transaction, and forwarding events to an external analytics platform. I chose batched relational inserts because they reduce database round trips for high-volume impressions while preserving straightforward SQL aggregation of clicks and impressions per banner. A dedicated analytics system would scale further but adds infrastructure outside the current MVP, while one request per event creates unnecessary write overhead. The endpoint validates the complete batch before committing, so unknown banners cannot produce partial analytics data.
+
+## B2C Home Banners
+
+The public `GET /api/v1/home/banners` endpoint returns only enabled banners within their optional schedule, ordered by ascending priority. `POST /api/v1/banner-events` accepts impression and click events in batches and stores them for CTR aggregation; it does not require buyer authentication. The legacy OpenAPI route `GET /api/v1/catalog/banners` is retained as a flat-array alias, while the canonical home endpoint returns `{items, total_count}`. Banner creation remains an administrative responsibility and is not exposed through the public API.
