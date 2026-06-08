@@ -196,12 +196,12 @@ def unreserve_skus(
     return result
 
 
-@router.post("/fulfill")
+@router.post("/inventory/fulfill")
 def fulfill_skus(
     payload: dict[str, Any],
     db: Session = Depends(get_db),
     x_service_key: str | None = Header(default=None, alias="X-Service-Key"),
-) -> dict[str, bool]:
+) -> dict[str, str]:
     _require_service_key(x_service_key)
     order_id = _require_uuid(payload, "order_id")
     existing_operation = db.get(FulfillOperation, order_id)
@@ -221,7 +221,11 @@ def fulfill_skus(
         sku = skus_by_id[item["sku_id"]]
         sku.reserved_quantity -= item["quantity"]
 
-    result = {"ok": True}
+    result = {
+        "order_id": order_id,
+        "status": "FULFILLED",
+        "processed_at": _utc_now(),
+    }
     db.add(
         FulfillOperation(
             order_id=order_id,
