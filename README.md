@@ -172,3 +172,11 @@ For CTR analytics I considered inserting one relational row per request, accepti
 ## B2C Home Banners
 
 The public `GET /api/v1/home/banners` endpoint returns only enabled banners within their optional schedule, ordered by ascending priority. `POST /api/v1/banner-events` accepts impression and click events in batches and stores them for CTR aggregation; it does not require buyer authentication. The legacy OpenAPI route `GET /api/v1/catalog/banners` is retained as a flat-array alias, while the canonical home endpoint returns `{items, total_count}`. Banner creation remains an administrative responsibility and is not exposed through the public API.
+
+## US-CART-05 ADR
+
+For collection membership I considered storing a UUID array on each collection, using a separate ordered association table, and copying product data into B2C. I chose an association table because content managers can reorder or update individual products without rewriting an entire array, while B2C still stores only product UUIDs. Copying product fields would become stale when B2B changes or deletes a product, and an embedded array is harder to query and constrain as collections grow. Missing UUIDs from the B2B batch response are reported through `unavailable_ids`, preserving consistency without breaking the collection.
+
+## B2C Product Collections
+
+The public `GET /api/v1/main/collections` endpoint returns active collection metadata without nested products. `GET /api/v1/collections/{collection_id}/products` reads ordered product UUIDs, enriches the requested page through the B2B public batch API, and returns unavailable UUIDs separately. Collections remain valid when every product is unavailable, and B2C never stores a product snapshot. The legacy OpenAPI route `GET /api/v1/catalog/collections` remains available as a flat metadata alias.

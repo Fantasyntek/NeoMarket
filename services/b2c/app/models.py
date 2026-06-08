@@ -1,10 +1,11 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -132,3 +133,42 @@ class BannerEvent(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    cover_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    target_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class CollectionProduct(Base):
+    __tablename__ = "collection_products"
+    __table_args__ = (
+        UniqueConstraint(
+            "collection_id",
+            "product_id",
+            name="uq_collection_products_collection_product",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    collection_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("collections.id"),
+        nullable=False,
+        index=True,
+    )
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    ordering: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

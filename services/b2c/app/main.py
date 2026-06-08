@@ -9,6 +9,7 @@ from app.database import init_db
 from app.routers.banners import router as banners_router
 from app.routers.cart import router as cart_router
 from app.routers.catalog import router as catalog_router
+from app.routers.collections import router as collections_router
 from app.routers.favorites import router as favorites_router
 from app.routers.subscriptions import router as subscriptions_router
 
@@ -49,6 +50,7 @@ def create_app(init_database: bool = True) -> FastAPI:
         )
 
     app.include_router(catalog_router)
+    app.include_router(collections_router)
     app.include_router(banners_router)
     app.include_router(cart_router)
     app.include_router(favorites_router)
