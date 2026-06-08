@@ -167,6 +167,10 @@ def create_sku(
         product.status = "ON_MODERATION"
         event_payload = build_product_event(product, "CREATED")
         outbox_event = record_outbox_event(db, event_payload)
+    elif not was_without_skus and product.status in {"MODERATED", "BLOCKED"}:
+        product.status = "ON_MODERATION"
+        event_payload = build_product_event(product, "EDITED")
+        outbox_event = record_outbox_event(db, event_payload)
 
     db.commit()
     db.refresh(sku)

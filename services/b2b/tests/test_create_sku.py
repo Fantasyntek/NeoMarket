@@ -122,6 +122,37 @@ def test_second_sku_no_state_change(
     assert db_session.query(ModerationOutboxEvent).count() == 0
 
 
+def test_add_sku_to_moderated_product_returns_to_on_moderation(
+    client: TestClient, db_session: Session, auth_headers: dict[str, str]
+) -> None:
+    product = create_product_fixture(db_session, status="MODERATED")
+    existing_sku = SKU(
+        product_id=product.id,
+        name="128GB Black",
+        price=10999000,
+        cost_price=8000000,
+        discount=0,
+        image="/s3/iphone15-black-128.jpg",
+    )
+    db_session.add(existing_sku)
+    db_session.commit()
+    fake_moderation = override_moderation(client)
+
+    response = client.post(
+        "/api/v1/skus",
+        json=valid_sku_payload(product.id),
+        headers=auth_headers,
+    )
+
+    db_session.refresh(product)
+    assert response.status_code == 201
+    assert product.status == "ON_MODERATION"
+    assert len(fake_moderation.events) == 1
+    assert fake_moderation.events[0]["event"] == "EDITED"
+    assert fake_moderation.events[0]["product_id"] == product.id
+    assert db_session.query(ModerationOutboxEvent).one().status == "SENT"
+
+
 def test_add_sku_to_hard_blocked_returns_403(
     client: TestClient, db_session: Session, auth_headers: dict[str, str]
 ) -> None:
