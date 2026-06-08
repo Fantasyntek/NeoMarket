@@ -14,6 +14,15 @@ jobs:
           python-version: "3.10"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r services/b2b/requirements.txt
-      - run: pytest -q
+      - name: Test B2B
+        run: python -m pytest -q
         working-directory: services/b2b
+      - run: python -m pip install -r services/b2c/requirements.txt
+      - name: Test B2C
+        run: python -m pytest -q
+        working-directory: services/b2c
+      - run: python -m pip install -r services/moderation/requirements.txt
+      - name: Test Moderation
+        run: python -m pytest -q
+        working-directory: services/moderation
 
