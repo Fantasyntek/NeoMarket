@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -172,3 +173,61 @@ class CollectionProduct(Base):
     )
     product_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     ordering: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class Order(Base):
+    __tablename__ = "orders"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('CREATED', 'PAID', 'ASSEMBLING', 'DELIVERING', "
+            "'DELIVERED', 'CANCELLED', 'CANCEL_PENDING')",
+            name="ck_orders_status",
+        ),
+        UniqueConstraint("idempotency_key", name="uq_orders_idempotency_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    idempotency_key: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        index=True,
+    )
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="CREATED")
+    delivery_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class OrderItem(Base):
+    __tablename__ = "order_items"
+    __table_args__ = (
+        UniqueConstraint("order_id", "sku_id", name="uq_order_items_order_sku"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    order_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("orders.id"),
+        nullable=False,
+        index=True,
+    )
+    sku_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    product_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    sku_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_price: Mapped[int] = mapped_column(Integer, nullable=False)
+    line_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)

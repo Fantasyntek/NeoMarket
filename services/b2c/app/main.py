@@ -11,6 +11,7 @@ from app.routers.cart import router as cart_router
 from app.routers.catalog import router as catalog_router
 from app.routers.collections import router as collections_router
 from app.routers.favorites import router as favorites_router
+from app.routers.orders import router as orders_router
 from app.routers.subscriptions import router as subscriptions_router
 
 
@@ -55,6 +56,7 @@ def create_app(init_database: bool = True) -> FastAPI:
     app.include_router(cart_router)
     app.include_router(favorites_router)
     app.include_router(subscriptions_router)
+    app.include_router(orders_router)
     return app
 
 
