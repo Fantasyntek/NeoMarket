@@ -132,3 +132,7 @@ Category navigation exposes a flat `GET /api/v1/catalog/categories` response and
 ## B2B Seller Product List Contract
 
 Seller product list items include the required `slug` and `category_id` fields in addition to aggregate SKU counters. Soft-deleted products are excluded by default and are returned only when `include_deleted=true`, matching the B2B OpenAPI contract. Seller ownership continues to come exclusively from the JWT claim, so query parameters cannot widen the result set.
+
+## B2B SKU Re-moderation
+
+Adding a new SKU to a `MODERATED` or `BLOCKED` product is treated as a content edit: the product returns to `ON_MODERATION` and an `EDITED` event is recorded in the Moderation outbox. Adding another SKU while the product is already `ON_MODERATION` does not emit a duplicate event. The original first-SKU transition from `CREATED` continues to emit `CREATED`.
