@@ -58,14 +58,16 @@ def test_fulfill_decreases_reserved_quantity(
     sku = create_sku_fixture(db_session, product, reserved_quantity=5)
 
     response = client.post(
-        "/api/v1/fulfill",
+        "/api/v1/inventory/fulfill",
         json=fulfill_payload(sku, quantity=2),
         headers=SERVICE_HEADERS,
     )
 
     db_session.refresh(sku)
     assert response.status_code == 200
-    assert response.json() == {"ok": True}
+    assert response.json()["order_id"] == ORDER_ID
+    assert response.json()["status"] == "FULFILLED"
+    assert response.json()["processed_at"].endswith("Z")
     assert sku.reserved_quantity == 3
     assert db_session.query(FulfillOperation).one().order_id == ORDER_ID
 
@@ -77,7 +79,7 @@ def test_active_quantity_unchanged(
     sku = create_sku_fixture(db_session, product, active_quantity=7, reserved_quantity=5)
 
     response = client.post(
-        "/api/v1/fulfill",
+        "/api/v1/inventory/fulfill",
         json=fulfill_payload(sku, quantity=2),
         headers=SERVICE_HEADERS,
     )
@@ -94,12 +96,12 @@ def test_idempotent_fulfill_no_double_deduction(
     sku = create_sku_fixture(db_session, product, reserved_quantity=5)
 
     first_response = client.post(
-        "/api/v1/fulfill",
+        "/api/v1/inventory/fulfill",
         json=fulfill_payload(sku, quantity=2),
         headers=SERVICE_HEADERS,
     )
     second_response = client.post(
-        "/api/v1/fulfill",
+        "/api/v1/inventory/fulfill",
         json=fulfill_payload(sku, quantity=2),
         headers=SERVICE_HEADERS,
     )
@@ -115,7 +117,25 @@ def test_missing_service_key_returns_401(client: TestClient, db_session: Session
     product = create_product_fixture(db_session)
     sku = create_sku_fixture(db_session, product, reserved_quantity=5)
 
-    response = client.post("/api/v1/fulfill", json=fulfill_payload(sku, quantity=2))
+    response = client.post(
+        "/api/v1/inventory/fulfill",
+        json=fulfill_payload(sku, quantity=2),
+    )
 
     assert response.status_code == 401
     assert response.json() == {"code": "UNAUTHORIZED", "message": "Invalid service key"}
+
+
+def test_legacy_fulfill_path_returns_404(
+    client: TestClient, db_session: Session
+) -> None:
+    product = create_product_fixture(db_session)
+    sku = create_sku_fixture(db_session, product)
+
+    response = client.post(
+        "/api/v1/fulfill",
+        json=fulfill_payload(sku),
+        headers=SERVICE_HEADERS,
+    )
+
+    assert response.status_code == 404
