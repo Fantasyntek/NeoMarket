@@ -175,14 +175,14 @@ def test_get_nonexistent_returns_404(
     assert response.json() == {"code": "NOT_FOUND", "message": "Product not found"}
 
 
-def test_service_mode_hides_seller_only_sku_fields(
+def test_public_product_detail_hides_seller_only_sku_fields(
     client: TestClient, db_session: Session
 ) -> None:
     product = create_product_fixture(db_session, status="MODERATED")
     create_sku_fixture(db_session, product, reserved_quantity=4)
 
     response = client.get(
-        f"/api/v1/products/{product.id}",
+        f"/api/v1/public/products/{product.id}",
         headers={"X-Service-Key": "dev-service-key"},
     )
 

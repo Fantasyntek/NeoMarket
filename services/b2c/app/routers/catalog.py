@@ -77,9 +77,9 @@ def _fetch_visible_products(
     category_id: str | None,
     search: str | None,
 ) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"limit": 100, "offset": 0, "sort": "date_desc"}
+    params: dict[str, Any] = {"limit": 100, "offset": 0, "sort": "created_desc"}
     if category_id:
-        params["category"] = category_id
+        params["category_id"] = category_id
     if search:
         params["search"] = search
 

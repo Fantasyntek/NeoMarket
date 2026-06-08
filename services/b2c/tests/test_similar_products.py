@@ -23,7 +23,7 @@ class FakeB2BClient:
 
     def list_products(self, params: dict[str, Any]) -> dict[str, Any]:
         self.list_requests.append(params)
-        category_id = str(params.get("category", ""))
+        category_id = str(params.get("category_id", ""))
         products = self.products_by_category.get(category_id, [])
         return {
             "items": products,
@@ -106,7 +106,7 @@ def test_similar_returns_up_to_8_from_same_category(client: TestClient) -> None:
     assert body["limit"] == 8
     assert body["offset"] == 0
     assert fake_b2b.product_requests == [CURRENT_PRODUCT_ID]
-    assert fake_b2b.list_requests[0]["category"] == CHILD_CATEGORY_ID
+    assert fake_b2b.list_requests[0]["category_id"] == CHILD_CATEGORY_ID
 
 
 def test_empty_category_returns_200_empty_list(client: TestClient) -> None:
@@ -174,7 +174,7 @@ def test_similar_fills_from_parent_category_when_needed(client: TestClient) -> N
         same_category_product["id"],
         parent_category_product["id"],
     ]
-    assert [request["category"] for request in fake_b2b.list_requests] == [
+    assert [request["category_id"] for request in fake_b2b.list_requests] == [
         CHILD_CATEGORY_ID,
         PARENT_CATEGORY_ID,
     ]

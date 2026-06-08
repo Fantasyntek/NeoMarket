@@ -27,6 +27,9 @@ class B2BClient(Protocol):
     def get_product(self, product_id: str) -> dict[str, Any]:
         pass
 
+    def batch_products(self, product_ids: list[str]) -> list[dict[str, Any]]:
+        pass
+
     def list_categories(self) -> dict[str, Any]:
         pass
 
@@ -43,7 +46,7 @@ class HttpB2BClient:
     def list_products(self, params: dict[str, Any]) -> dict[str, Any]:
         try:
             response = httpx.get(
-                f"{self.base_url}/api/v1/products",
+                f"{self.base_url}/api/v1/public/products",
                 params=params,
                 headers={"X-Service-Key": self.service_key},
                 timeout=5.0,
@@ -64,7 +67,28 @@ class HttpB2BClient:
     def get_product(self, product_id: str) -> dict[str, Any]:
         try:
             response = httpx.get(
-                f"{self.base_url}/api/v1/products/{product_id}",
+                f"{self.base_url}/api/v1/public/products/{product_id}",
+                headers={"X-Service-Key": self.service_key},
+                timeout=5.0,
+            )
+        except httpx.RequestError as exc:
+            raise B2BUnavailableError from exc
+
+        if response.status_code >= 500:
+            raise B2BUnavailableError
+        if response.status_code >= 400:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {"code": "B2B_ERROR", "message": "B2B request failed"}
+            raise B2BResponseError(response.status_code, payload)
+        return response.json()
+
+    def batch_products(self, product_ids: list[str]) -> list[dict[str, Any]]:
+        try:
+            response = httpx.post(
+                f"{self.base_url}/api/v1/public/products/batch",
+                json={"product_ids": product_ids},
                 headers={"X-Service-Key": self.service_key},
                 timeout=5.0,
             )
