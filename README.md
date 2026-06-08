@@ -136,3 +136,7 @@ Seller product list items include the required `slug` and `category_id` fields i
 ## B2B SKU Re-moderation
 
 Adding a new SKU to a `MODERATED` or `BLOCKED` product is treated as a content edit: the product returns to `ON_MODERATION` and an `EDITED` event is recorded in the Moderation outbox. Adding another SKU while the product is already `ON_MODERATION` does not emit a duplicate event. The original first-SKU transition from `CREATED` continues to emit `CREATED`.
+
+## B2B Outgoing Moderation Events
+
+B2B sends product lifecycle events to `POST /api/v1/b2b/events` with `X-Service-Key`. The payload follows the Moderation OpenAPI contract: `event_type` is one of `PRODUCT_CREATED`, `PRODUCT_EDITED`, or `PRODUCT_DELETED`, `occurred_at` is a UTC timestamp, and event data is nested under `payload`. Created and edited events include the current product snapshot in `json_after`, while edited events also include the required `json_before` object. The exact transmitted document is persisted in the Moderation outbox for reliable inspection and retry support.
