@@ -5,8 +5,9 @@ import json
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,16 @@ from app.models import Order, OrderItem
 
 
 router = APIRouter(prefix="/api/v1/orders", tags=["Orders"])
+
+ORDER_STATUSES = {
+    "CREATED",
+    "PAID",
+    "ASSEMBLING",
+    "DELIVERING",
+    "DELIVERED",
+    "CANCELLED",
+    "CANCEL_PENDING",
+}
 
 
 def _normalize_uuid(value: Any, field_name: str) -> str:
@@ -165,6 +176,99 @@ def _serialize_order(db: Session, order: Order) -> dict[str, Any]:
         "updated_at": updated_at,
         "paid_at": updated_at if order.status == "PAID" else None,
     }
+
+
+def _order_not_found() -> None:
+    raise api_error(404, "ORDER_NOT_FOUND", "Order not found")
+
+
+def _owned_order(
+    db: Session,
+    *,
+    order_id: str,
+    user_id: str,
+) -> Order:
+    try:
+        normalized_order_id = str(UUID(order_id))
+    except ValueError:
+        _order_not_found()
+    order = (
+        db.query(Order)
+        .filter(
+            Order.id == normalized_order_id,
+            Order.user_id == user_id,
+        )
+        .one_or_none()
+    )
+    if order is None:
+        _order_not_found()
+    return order
+
+
+@router.get("")
+def list_orders(
+    current_user: CurrentUser = Depends(require_user),
+    db: Session = Depends(get_db),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    status: str | None = Query(default=None),
+) -> dict[str, Any]:
+    if status is not None and status not in ORDER_STATUSES:
+        raise api_error(
+            400,
+            "INVALID_STATUS",
+            f"status must be one of: {', '.join(sorted(ORDER_STATUSES))}",
+        )
+
+    items_count = (
+        db.query(func.count(OrderItem.id))
+        .filter(OrderItem.order_id == Order.id)
+        .correlate(Order)
+        .scalar_subquery()
+    )
+    query = db.query(Order, items_count.label("items_count")).filter(
+        Order.user_id == current_user.user_id
+    )
+    if status is not None:
+        query = query.filter(Order.status == status)
+
+    total_count = query.count()
+    rows = (
+        query.order_by(Order.created_at.desc(), Order.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return {
+        "items": [
+            {
+                "id": order.id,
+                "status": order.status,
+                "total_amount": order.total_amount,
+                "items_count": int(count),
+                "created_at": order.created_at.isoformat(),
+                "updated_at": order.updated_at.isoformat(),
+            }
+            for order, count in rows
+        ],
+        "total_count": total_count,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/{order_id}")
+def get_order(
+    order_id: str,
+    current_user: CurrentUser = Depends(require_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    order = _owned_order(
+        db,
+        order_id=order_id,
+        user_id=current_user.user_id,
+    )
+    return _serialize_order(db, order)
 
 
 def _existing_order_response(

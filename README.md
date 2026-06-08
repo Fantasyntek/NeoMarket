@@ -188,3 +188,11 @@ For checkout idempotency I considered a unique index on `orders.idempotency_key`
 ## B2C Checkout
 
 Authenticated buyers create orders through `POST /api/v1/orders` with explicit SKU quantities and an idempotency key. B2C validates current product visibility and stock through the B2B public SKU batch endpoint, then performs one all-or-nothing call to `POST /api/v1/inventory/reserve`. Successful orders store immutable `unit_price`, `product_title`, and `sku_name` snapshots in `OrderItem` and move directly to `PAID`; failed reserves leave no order rows. The canonical body key and the OpenAPI `Idempotency-Key` header are both accepted, and retries return the existing order without reserving inventory again.
+
+## US-ORD-02 ADR
+
+For order IDOR protection I considered loading by order ID and checking ownership afterward, scoping every query by both order ID and JWT user ID, and implementing a reusable permission layer. I chose the scoped query because ownership is visible directly in the data access expression and a missing or foreign order naturally produces the same result. Loading first risks accidentally returning `403` or leaking order existence when a future endpoint forgets the second check, while a permission abstraction would add indirection before there are multiple order resources. This approach keeps the behavior deterministic: unexpected absence, malformed IDs, and foreign ownership all return `404 ORDER_NOT_FOUND`.
+
+## B2C Order History
+
+Authenticated buyers can list their own orders through paginated `GET /api/v1/orders` with an optional status filter. List items contain summary metadata and the number of order lines, while `GET /api/v1/orders/{order_id}` returns immutable `OrderItem` snapshots without calling B2B. Every query is scoped by the JWT `sub` claim; `user_id` query parameters cannot widen access, and foreign orders are indistinguishable from missing orders.
