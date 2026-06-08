@@ -54,10 +54,31 @@ def _upgrade_product_moderation_schema() -> None:
             "ALTER TABLE product_moderation "
             f"ADD COLUMN claim_expires_at {datetime_type}"
         )
+    if "content_revision" not in columns:
+        statements.append(
+            "ALTER TABLE product_moderation "
+            "ADD COLUMN content_revision INTEGER NOT NULL DEFAULT 1"
+        )
+    if "review_revision" not in columns:
+        statements.append(
+            "ALTER TABLE product_moderation ADD COLUMN review_revision INTEGER"
+        )
+    if "decision_at" not in columns:
+        statements.append(
+            "ALTER TABLE product_moderation "
+            f"ADD COLUMN decision_at {datetime_type}"
+        )
 
     with engine.begin() as connection:
         for statement in statements:
             connection.execute(text(statement))
+        connection.execute(
+            text(
+                "UPDATE product_moderation "
+                "SET review_revision = content_revision "
+                "WHERE status = 'IN_REVIEW' AND review_revision IS NULL"
+            )
+        )
         connection.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS "

@@ -32,6 +32,8 @@ services:
     build:
       context: ../services/moderation
     environment:
+      B2B_SERVICE_KEY: dev-service-key
+      B2B_URL: http://b2b:8000
       B2B_TO_MODERATION_SERVICE_KEY: dev-service-key
       CLAIM_TTL_MINUTES: "30"
       DATABASE_URL: sqlite:////data/neomarket-moderation.db
@@ -40,6 +42,8 @@ services:
       - "8002:8000"
     volumes:
       - moderation-data:/data
+    depends_on:
+      - b2b
 
 volumes:
   b2b-data:

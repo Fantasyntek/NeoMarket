@@ -154,6 +154,7 @@ def _claim_next(
                 moderator_id=moderator_id,
                 claimed_at=now,
                 claim_expires_at=expires_at,
+                review_revision=candidate.content_revision,
             )
             .execution_options(synchronize_session=False)
         )
@@ -192,7 +193,7 @@ def _serialize(card: ProductModeration) -> dict[str, Any]:
         "assigned_moderator_id": card.moderator_id,
         "claimed_at": _iso(card.claimed_at),
         "claim_expires_at": _iso(card.claim_expires_at),
-        "decision_at": None,
+        "decision_at": _iso(card.decision_at),
         "created_at": _iso(card.date_created),
         "updated_at": _iso(card.date_updated),
     }
