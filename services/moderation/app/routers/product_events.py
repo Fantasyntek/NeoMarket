@@ -185,6 +185,7 @@ def _created(db: Session, event: ProductEvent) -> ProductModeration:
         json_before=None,
         json_after=event.json_after,
         total_active_quantity=_total_active_quantity(event.json_after),
+        content_revision=1,
     )
     db.add(card)
     return card
@@ -207,6 +208,7 @@ def _edited(db: Session, event: ProductEvent) -> ProductModeration:
 
     old_status = card.status
     card.kind = "EDIT"
+    card.content_revision += 1
     card.seller_id = event.seller_id or card.seller_id
     card.category_id = event.category_id
     card.json_before = event.json_before or card.json_after

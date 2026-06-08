@@ -58,6 +58,8 @@ class ProductModeration(Base):
     json_before: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     json_after: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     total_active_quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    content_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    review_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
     moderator_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     claimed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -70,6 +72,10 @@ class ProductModeration(Base):
     )
     blocking_reason_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     moderator_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decision_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     archived_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -103,4 +109,30 @@ class ProcessedProductEvent(Base):
         server_default=func.now(),
         nullable=False,
         index=True,
+    )
+
+
+class B2BOutboxEvent(Base):
+    __tablename__ = "b2b_outbox_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    idempotency_key: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    product_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="PENDING")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )

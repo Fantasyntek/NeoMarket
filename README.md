@@ -248,3 +248,11 @@ For concurrent queue claims I considered `SELECT FOR UPDATE SKIP LOCKED`, a Redi
 ## Moderation Queue Claim
 
 Moderators claim work through OpenAPI `POST /api/v1/queue/claim` or the canonical alias `POST /api/v1/product-moderation/get-next` using a Bearer JWT. The queue is ordered by `queue_priority` from 1 to 4 and then FIFO by creation time; optional `queue_priority` and `category_ids` filters are supported. Claiming atomically changes the card to `IN_REVIEW`, records the moderator and lease timestamps, and returns `204` when no matching card exists. A moderator cannot hold two active cards, and expired claims are released automatically using `CLAIM_TTL_MINUTES` (30 by default).
+
+## US-MOD-03 ADR
+
+For delivering a MODERATED decision to B2B I considered a synchronous HTTP request inside the approve transaction, a transactional outbox with background retries, and an external event bus. I chose the outbox pattern because the decision and its event are persisted atomically, so a B2B outage cannot lose an approval. A direct request has lower latency but can leave ambiguous state after a timeout, while an event bus adds infrastructure beyond the current iteration. The endpoint attempts immediate delivery for fast feedback and leaves failed events in `PENDING` for a future worker.
+
+## Moderation Product Approval
+
+The OpenAPI `POST /api/v1/tickets/{ticket_id}/approve` endpoint and canonical product-moderation alias require the card to be `IN_REVIEW`, assigned to the JWT moderator, unchanged since claim, and backed by at least one SKU in the current snapshot. Approval changes the card to `MODERATED` and writes a B2B outbox event using the `/api/v1/moderation/events` contract. Content and review revision numbers reject stale approvals after an EDITED event, while the outbox idempotency key prevents duplicate catalog publication. Failed deliveries remain `PENDING` and can be retried with `python -m app.retry_b2b_events`.
