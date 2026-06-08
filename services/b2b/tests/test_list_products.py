@@ -72,6 +72,8 @@ def test_list_returns_only_own_products(
     assert response.status_code == 200
     body = response.json()
     assert [item["id"] for item in body["items"]] == [own_product.id]
+    assert body["items"][0]["slug"] == "own-iphone"
+    assert body["items"][0]["category_id"] == TEST_CATEGORY_ID
     assert body["items"][0]["skus_count"] == 2
     assert body["items"][0]["total_active_quantity"] == 10
     assert body["total_count"] == 1
@@ -107,13 +109,32 @@ def test_deleted_products_visible_with_deleted_flag(
         deleted=True,
     )
 
-    response = client.get("/api/v1/products", headers=seller_headers(TEST_SELLER_ID))
+    response = client.get(
+        "/api/v1/products?include_deleted=true",
+        headers=seller_headers(TEST_SELLER_ID),
+    )
 
     assert response.status_code == 200
     body = response.json()
     assert body["items"][0]["id"] == deleted_product.id
     assert body["items"][0]["deleted"] is True
     assert body["total_count"] == 1
+
+
+def test_deleted_products_hidden_by_default(
+    client: TestClient, db_session: Session
+) -> None:
+    create_product_fixture(
+        db_session,
+        "Deleted iPhone",
+        deleted=True,
+    )
+
+    response = client.get("/api/v1/products", headers=seller_headers(TEST_SELLER_ID))
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert response.json()["total_count"] == 0
 
 
 def test_status_filter_works_correctly(

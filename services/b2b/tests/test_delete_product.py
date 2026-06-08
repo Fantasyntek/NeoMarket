@@ -174,7 +174,10 @@ def test_deleted_product_visible_with_deleted_flag_in_seller_list(
         title="Visible iPhone",
     )
 
-    response = client.get("/api/v1/products", headers=auth_headers)
+    response = client.get(
+        "/api/v1/products?include_deleted=true",
+        headers=auth_headers,
+    )
 
     assert response.status_code == 200
     body = response.json()

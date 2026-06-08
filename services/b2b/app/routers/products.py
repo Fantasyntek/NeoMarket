@@ -207,7 +207,9 @@ def _serialize_product_list_item(
     return {
         "id": product.id,
         "title": product.title,
+        "slug": product.slug,
         "status": product.status,
+        "category_id": product.category_id,
         "deleted": product.deleted,
         "category": {"id": product.category.id, "name": product.category.name},
         "images": [
@@ -231,6 +233,7 @@ def list_products(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     status: str | None = None,
+    include_deleted: bool = Query(default=False),
     search: str | None = None,
 ) -> dict[str, Any]:
     current_seller = _seller_from_authorization(authorization)
@@ -238,6 +241,8 @@ def list_products(
         raise api_error(400, "INVALID_REQUEST", "status is invalid")
 
     query = db.query(Product).filter(Product.seller_id == current_seller.seller_id)
+    if not include_deleted:
+        query = query.filter(Product.deleted.is_(False))
     if status is not None:
         query = query.filter(Product.status == status)
     if search is not None and search.strip():
