@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, NoReturn
 
 from fastapi import APIRouter, Depends, Query, Request
 
@@ -17,15 +17,12 @@ from app.errors import api_error
 router = APIRouter(prefix="/api/v1", tags=["Catalog"])
 
 ALLOWED_SORTS = {
-    "rating",
     "popularity",
     "price_asc",
     "price_desc",
-    "date_desc",
-    "discount_desc",
+    "new",
 }
-DEFAULT_SORT = "rating"
-FILTER_PREFIXES = ("filters[", "filter[")
+DEFAULT_SORT = "popularity"
 FACET_NAME_ALIASES = {
     "brand": {"brand", "бренд"},
     "color": {"color", "цвет"},
@@ -34,9 +31,7 @@ FACET_NAME_ALIASES = {
 
 
 def _invalid_sort_error() -> None:
-    allowed = ", ".join(
-        ["rating", "popularity", "price_asc", "price_desc", "date_desc", "discount_desc"]
-    )
+    allowed = ", ".join(["price_asc", "price_desc", "popularity", "new"])
     raise api_error(
         400,
         "INVALID_REQUEST",
@@ -54,11 +49,11 @@ def _validate_search_query(search: str | None) -> str | None:
             "INVALID_REQUEST",
             "Search query must be at least 3 characters",
         )
-    if len(normalized_search) > 255:
+    if len(normalized_search) > 200:
         raise api_error(
             400,
             "INVALID_REQUEST",
-            "Search query must be at most 255 characters",
+            "Search query must be at most 200 characters",
         )
     return normalized_search
 
@@ -66,9 +61,12 @@ def _validate_search_query(search: str | None) -> str | None:
 def _parse_filters(request: Request) -> dict[str, str]:
     filters: dict[str, str] = {}
     for key, value in request.query_params.multi_items():
-        for prefix in FILTER_PREFIXES:
-            if key.startswith(prefix) and key.endswith("]"):
-                filters[key[len(prefix) : -1]] = value
+        if not key.startswith("filter[") or not key.endswith("]"):
+            continue
+        name = key[len("filter[") : -1]
+        if name.startswith("attributes]["):
+            name = name[len("attributes][") :]
+        filters[name] = value
     return filters
 
 
@@ -76,12 +74,22 @@ def _fetch_visible_products(
     b2b_client: B2BClient,
     category_id: str | None,
     search: str | None,
+    filters: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     params: dict[str, Any] = {"limit": 100, "offset": 0, "sort": "created_desc"}
     if category_id:
         params["category_id"] = category_id
     if search:
         params["search"] = search
+    for name, value in (filters or {}).items():
+        if name == "price_min":
+            params["min_price"] = value
+        elif name == "price_max":
+            params["max_price"] = value
+        elif name == "seller_id":
+            params["seller_id"] = value
+        elif name != "category_id":
+            params[f"filters[{name}]"] = value
 
     try:
         response = b2b_client.list_products(params)
@@ -156,28 +164,21 @@ def _apply_filters(
             if _product_category_id(product) == category_id
         ]
     for name, value in filters.items():
+        if name == "category_id":
+            continue
+        if name == "seller_id":
+            filtered_products = [
+                product
+                for product in filtered_products
+                if str(product.get("seller_id")) == value
+            ]
+            continue
         filtered_products = [
             product
             for product in filtered_products
             if _product_matches_filter(product, name, value)
         ]
     return filtered_products
-
-
-def _apply_search(
-    products: list[dict[str, Any]],
-    search: str | None,
-) -> list[dict[str, Any]]:
-    if search is None:
-        return products
-
-    needle = search.lower()
-    return [
-        product
-        for product in products
-        if needle in str(product.get("title", "")).lower()
-        or needle in str(product.get("description", "")).lower()
-    ]
 
 
 def _product_category_id(product: dict[str, Any]) -> str | None:
@@ -265,29 +266,43 @@ def _category_path(
     return list(reversed(path))
 
 
-def _serialize_category_node(
+def _serialize_navigation_category_ref(
     category: dict[str, Any],
-    children_by_parent: dict[str | None, list[dict[str, Any]]],
+    categories_by_id: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
+    path = _category_path(category["id"], categories_by_id)
     return {
         "id": category["id"],
         "name": category["name"],
         "parent_id": _category_parent_id(category),
+        "level": len(path) - 1,
+        "path": [item["name"] for item in path],
+    }
+
+
+def _serialize_category_node(
+    category: dict[str, Any],
+    children_by_parent: dict[str | None, list[dict[str, Any]]],
+    categories_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        **_serialize_navigation_category_ref(category, categories_by_id),
         "children": [
-            _serialize_category_node(child, children_by_parent)
+            _serialize_category_node(child, children_by_parent, categories_by_id)
             for child in children_by_parent.get(category["id"], [])
         ],
     }
 
 
 def _build_category_tree(categories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    categories_by_id = _categories_by_id(categories)
     children_by_parent: dict[str | None, list[dict[str, Any]]] = defaultdict(list)
     for category in categories:
         children_by_parent[_category_parent_id(category)].append(category)
     for children in children_by_parent.values():
         children.sort(key=lambda category: (str(category.get("name", "")), category["id"]))
     return [
-        _serialize_category_node(category, children_by_parent)
+        _serialize_category_node(category, children_by_parent, categories_by_id)
         for category in children_by_parent.get(None, [])
     ]
 
@@ -359,14 +374,29 @@ def _product_max_discount(product: dict[str, Any]) -> int:
     return max(discounts) if discounts else 0
 
 
-def _product_image(product: dict[str, Any]) -> str | None:
-    images = product.get("images", [])
-    if images:
-        return images[0].get("url")
-    skus = product.get("skus", [])
-    if skus:
-        return skus[0].get("image")
-    return None
+def _serialize_images(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": image.get("id"),
+            "url": image.get("url"),
+            "ordering": int(image.get("ordering", 0)),
+        }
+        for image in images
+        if image.get("id") is not None and image.get("url") is not None
+    ]
+
+
+def _serialize_category_ref(product: dict[str, Any]) -> dict[str, Any] | None:
+    category = product.get("category")
+    if not isinstance(category, dict) or not category.get("id") or not category.get("name"):
+        return None
+    return {
+        "id": category["id"],
+        "name": category["name"],
+        "parent_id": category.get("parent_id"),
+        "level": int(category.get("level", 0)),
+        "path": list(category.get("path", [category["name"]])),
+    }
 
 
 def _sort_products(products: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
@@ -378,65 +408,71 @@ def _sort_products(products: list[dict[str, Any]], sort: str) -> list[dict[str, 
             key=lambda product: (_product_price(product), product["id"]),
             reverse=True,
         )
-    if sort == "discount_desc":
-        return sorted(
-            products,
-            key=lambda product: (_product_max_discount(product), product["id"]),
-            reverse=True,
-        )
-    if sort == "date_desc":
+    if sort == "new":
         return sorted(products, key=lambda product: product.get("created_at", ""), reverse=True)
-    return sorted(products, key=lambda product: product["id"])
+    return list(products)
 
 
 def _serialize_product_card(product: dict[str, Any]) -> dict[str, Any]:
-    return {
+    available_skus = [
+        sku for sku in product.get("skus", []) if int(sku.get("active_quantity", 0)) > 0
+    ]
+    old_prices = [
+        int(sku.get("price", 0))
+        for sku in available_skus
+        if int(sku.get("discount", 0)) > 0
+    ]
+    payload = {
         "id": product["id"],
-        "title": product["title"],
-        "image": _product_image(product),
-        "price": _product_price(product),
-        "in_stock": any(sku.get("active_quantity", 0) > 0 for sku in product.get("skus", [])),
-        "is_in_cart": False,
+        "name": product["title"],
+        "slug": product.get("slug"),
+        "min_price": _product_price(product),
+        "old_price": min(old_prices) if old_prices else None,
+        "has_stock": bool(available_skus),
+        "rating": product.get("rating"),
+        "reviews_count": int(product.get("reviews_count", 0)),
+        "images": _serialize_images(list(product.get("images", []))),
     }
+    category = _serialize_category_ref(product)
+    if category is not None:
+        payload["category"] = category
+    return payload
 
 
 def _public_sku(sku: dict[str, Any]) -> dict[str, Any]:
+    discount = int(sku.get("discount", 0))
+    price = int(sku.get("price", 0))
+    raw_images = list(sku.get("images", []))
+    if not raw_images and sku.get("image"):
+        raw_images = [
+            {
+                "id": sku["id"],
+                "url": sku["image"],
+                "ordering": 0,
+            }
+        ]
     return {
         "id": sku["id"],
         "name": sku.get("name"),
-        "price": int(sku.get("price", 0)),
-        "discount": int(sku.get("discount", 0)),
-        "image": sku.get("image"),
-        "active_quantity": int(sku.get("active_quantity", 0)),
-        "in_stock": int(sku.get("active_quantity", 0)) > 0,
-        "characteristics": [
-            {
-                "name": characteristic.get("name"),
-                "value": characteristic.get("value"),
-            }
+        "price": max(price - discount, 0),
+        "old_price": price if discount > 0 else None,
+        "available_quantity": int(sku.get("active_quantity", 0)),
+        "attributes": {
+            str(characteristic.get("name")): characteristic.get("value")
             for characteristic in sku.get("characteristics", [])
-        ],
+        },
+        "images": _serialize_images(raw_images),
     }
 
 
 def _serialize_product_detail(product: dict[str, Any]) -> dict[str, Any]:
     return {
-        "id": product["id"],
-        "slug": product.get("slug"),
-        "title": product["title"],
+        **_serialize_product_card(product),
         "description": product.get("description", ""),
-        "images": [
-            {"url": image.get("url"), "ordering": image.get("ordering", 0)}
-            for image in product.get("images", [])
-        ],
-        "status": product.get("status"),
-        "characteristics": [
-            {
-                "name": characteristic.get("name"),
-                "value": characteristic.get("value"),
-            }
+        "attributes": {
+            str(characteristic.get("name")): characteristic.get("value")
             for characteristic in product.get("characteristics", [])
-        ],
+        },
         "skus": [_public_sku(sku) for sku in product.get("skus", [])],
     }
 
@@ -445,7 +481,7 @@ def _product_is_customer_visible(product: dict[str, Any]) -> bool:
     return product.get("status") == "MODERATED" and product.get("deleted") is not True
 
 
-def _raise_b2b_response_error(exc: B2BResponseError) -> None:
+def _raise_b2b_response_error(exc: B2BResponseError) -> NoReturn:
     payload = exc.payload
     raise api_error(
         exc.status_code,
@@ -505,24 +541,28 @@ def _build_facets(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-@router.get("/products")
+@router.get("/catalog/products")
 def list_products(
     request: Request,
     b2b_client: B2BClient = Depends(get_b2b_client),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    category_id: str | None = None,
     sort: str = DEFAULT_SORT,
-    search: str | None = None,
+    q: str | None = None,
 ) -> dict[str, Any]:
     if sort not in ALLOWED_SORTS:
         _invalid_sort_error()
 
-    normalized_search = _validate_search_query(search)
+    normalized_search = _validate_search_query(q)
     filters = _parse_filters(request)
-    products = _fetch_visible_products(b2b_client, category_id, normalized_search)
-    searched_products = _apply_search(products, normalized_search)
-    filtered_products = _apply_filters(searched_products, category_id, filters)
+    category_id = filters.get("category_id")
+    products = _fetch_visible_products(
+        b2b_client,
+        category_id,
+        normalized_search,
+        filters,
+    )
+    filtered_products = _apply_filters(products, category_id, filters)
     sorted_products = _sort_products(filtered_products, sort)
     page = sorted_products[offset : offset + limit]
 
@@ -534,7 +574,7 @@ def list_products(
     }
 
 
-@router.get("/products/{product_id}")
+@router.get("/catalog/products/{product_id}")
 def get_product_card(
     product_id: str,
     b2b_client: B2BClient = Depends(get_b2b_client),
@@ -547,28 +587,27 @@ def get_product_card(
     return _serialize_product_detail(product)
 
 
-@router.get("/products/{product_id}/similar")
+@router.get("/catalog/products/{product_id}/similar")
 def get_similar_products(
     product_id: str,
     b2b_client: B2BClient = Depends(get_b2b_client),
     category: str | None = None,
-    limit: int = Query(default=8, ge=1, le=20),
-    offset: int = Query(default=0, ge=0),
-) -> dict[str, Any]:
+    limit: int = Query(default=10, ge=1, le=50),
+) -> list[dict[str, Any]]:
     current_product = _fetch_product_detail(b2b_client, product_id)
     if not _product_is_customer_visible(current_product):
         raise api_error(404, "NOT_FOUND", "Product not found")
 
     category_id = category or _product_category_id(current_product)
     if category_id is None:
-        return {"items": [], "total_count": 0, "limit": limit, "offset": offset}
+        return []
 
     products = _fetch_visible_products(b2b_client, category_id, search=None)
     selected_products, total_count = _select_similar_products(
         current_product,
         products,
         limit,
-        offset,
+        0,
     )
 
     if len(selected_products) < limit:
@@ -594,84 +633,54 @@ def get_similar_products(
             selected_products.extend(parent_candidates[:missing_count])
             total_count += len(parent_candidates)
 
-    return {
-        "items": [_serialize_product_card(product) for product in selected_products],
-        "total_count": total_count,
-        "limit": limit,
-        "offset": offset,
-    }
+    return [_serialize_product_card(product) for product in selected_products]
 
 
-@router.get("/categories")
+@router.get("/catalog/categories")
+def get_categories(
+    b2b_client: B2BClient = Depends(get_b2b_client),
+) -> list[dict[str, Any]]:
+    categories = _fetch_categories(b2b_client)
+    _validate_category_hierarchy(categories)
+    categories_by_id = _categories_by_id(categories)
+    return [
+        _serialize_navigation_category_ref(category, categories_by_id)
+        for category in sorted(
+            categories,
+            key=lambda item: (
+                len(_category_path(item["id"], categories_by_id)),
+                str(item.get("name", "")),
+                item["id"],
+            ),
+        )
+    ]
+
+
+@router.get("/catalog/categories/tree")
 def get_category_tree(
     b2b_client: B2BClient = Depends(get_b2b_client),
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     categories = _fetch_categories(b2b_client)
     _validate_category_hierarchy(categories)
-    return {"items": _build_category_tree(categories)}
-
-
-@router.get("/categories/{category_id}")
-def get_category_detail(
-    category_id: str,
-    b2b_client: B2BClient = Depends(get_b2b_client),
-    include_product_count: bool = True,
-) -> dict[str, Any]:
-    categories = _fetch_categories(b2b_client)
-    _validate_category_hierarchy(categories)
-    categories_by_id = _categories_by_id(categories)
-    if category_id not in categories_by_id:
-        raise api_error(404, "NOT_FOUND", "Category not found")
-    return _serialize_category_detail(categories_by_id[category_id], categories_by_id)
-
-
-@router.get("/breadcrumbs")
-def get_breadcrumbs(
-    b2b_client: B2BClient = Depends(get_b2b_client),
-    category_id: str | None = None,
-    product_id: str | None = None,
-) -> dict[str, Any]:
-    if (category_id is None and product_id is None) or (
-        category_id is not None and product_id is not None
-    ):
-        raise api_error(
-            400,
-            "INVALID_REQUEST",
-            "only one of category_id or product_id must be provided",
-        )
-
-    resolved_category_id = category_id
-    if product_id is not None:
-        product = _fetch_product_detail(b2b_client, product_id)
-        resolved_category_id = _product_category_id(product)
-        if resolved_category_id is None:
-            raise api_error(404, "NOT_FOUND", "Category not found")
-
-    categories = _fetch_categories(b2b_client)
-    _validate_category_hierarchy(categories)
-    categories_by_id = _categories_by_id(categories)
-    path = _category_path(str(resolved_category_id), categories_by_id)
-    return {
-        "data": _serialize_breadcrumbs(path, str(resolved_category_id)),
-        "meta": {
-            "resolved_via": "product_id" if product_id is not None else "category_id",
-            "category_id": resolved_category_id,
-        },
-    }
+    return _build_category_tree(categories)
 
 
 @router.get("/catalog/facets")
 def get_facets(
     request: Request,
     b2b_client: B2BClient = Depends(get_b2b_client),
-    category_id: str | None = None,
-    search: str | None = None,
+    q: str | None = None,
 ) -> dict[str, Any]:
-    normalized_search = _validate_search_query(search)
+    normalized_search = _validate_search_query(q)
     filters = _parse_filters(request)
-    products = _fetch_visible_products(b2b_client, category_id, normalized_search)
-    searched_products = _apply_search(products, normalized_search)
-    filtered_products = _apply_filters(searched_products, category_id, filters)
+    category_id = filters.get("category_id")
+    products = _fetch_visible_products(
+        b2b_client,
+        category_id,
+        normalized_search,
+        filters,
+    )
+    filtered_products = _apply_filters(products, category_id, filters)
 
     return {
         "category_id": category_id,

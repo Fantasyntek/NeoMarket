@@ -50,7 +50,13 @@ def catalog_product(
         "description": f"{title} description",
         "status": "MODERATED",
         "category": {"id": category_id, "name": "iOS"},
-        "images": [{"url": f"/s3/{product_id}.jpg", "ordering": 0}],
+        "images": [
+            {
+                "id": product_id,
+                "url": f"/s3/{product_id}.jpg",
+                "ordering": 0,
+            }
+        ],
         "characteristics": [{"name": "brand", "value": brand}],
         "skus": [
             {
@@ -98,10 +104,10 @@ def test_catalog_returns_filtered_sorted_products(client: TestClient) -> None:
     fake_b2b = override_b2b(client, FakeB2BClient(products))
 
     response = client.get(
-        "/api/v1/products",
+        "/api/v1/catalog/products",
         params={
-            "category_id": IOS_CATEGORY_ID,
-            "filters[brand]": "Apple",
+            "filter[category_id]": IOS_CATEGORY_ID,
+            "filter[attributes][brand]": "Apple",
             "sort": "price_asc",
             "limit": 1,
             "offset": 0,
@@ -114,11 +120,27 @@ def test_catalog_returns_filtered_sorted_products(client: TestClient) -> None:
         "items": [
             {
                 "id": "00000000-0000-0000-0000-000000000002",
-                "title": "iPhone 14",
-                "image": "/s3/00000000-0000-0000-0000-000000000002.jpg",
-                "price": 9999000,
-                "in_stock": True,
-                "is_in_cart": False,
+                "name": "iPhone 14",
+                "slug": None,
+                "category": {
+                    "id": IOS_CATEGORY_ID,
+                    "name": "iOS",
+                    "parent_id": None,
+                    "level": 0,
+                    "path": ["iOS"],
+                },
+                "min_price": 9999000,
+                "old_price": None,
+                "has_stock": True,
+                "rating": None,
+                "reviews_count": 0,
+                "images": [
+                    {
+                        "id": "00000000-0000-0000-0000-000000000002",
+                        "url": "/s3/00000000-0000-0000-0000-000000000002.jpg",
+                        "ordering": 0,
+                    }
+                ],
             }
         ],
         "total_count": 2,
@@ -160,7 +182,7 @@ def test_facets_return_counts_per_filter_value(client: TestClient) -> None:
 
     response = client.get(
         "/api/v1/catalog/facets",
-        params={"category_id": IOS_CATEGORY_ID},
+        params={"filter[category_id]": IOS_CATEGORY_ID},
     )
 
     assert response.status_code == 200
@@ -185,14 +207,16 @@ def test_facets_return_counts_per_filter_value(client: TestClient) -> None:
 def test_invalid_sort_returns_400(client: TestClient) -> None:
     override_b2b(client, FakeB2BClient([]))
 
-    response = client.get("/api/v1/products", params={"sort": "price_sideways"})
+    response = client.get(
+        "/api/v1/catalog/products",
+        params={"sort": "price_sideways"},
+    )
 
     assert response.status_code == 400
     assert response.json() == {
         "code": "INVALID_REQUEST",
         "message": (
-            "Invalid sort parameter. Allowed: rating, popularity, price_asc, "
-            "price_desc, date_desc, discount_desc"
+            "Invalid sort parameter. Allowed: price_asc, price_desc, popularity, new"
         ),
     }
 
@@ -200,10 +224,18 @@ def test_invalid_sort_returns_400(client: TestClient) -> None:
 def test_b2b_unavailable_returns_502(client: TestClient) -> None:
     override_b2b(client, UnavailableB2BClient())
 
-    response = client.get("/api/v1/products")
+    response = client.get("/api/v1/catalog/products")
 
     assert response.status_code == 502
     assert response.json() == {
         "code": "B2B_UNAVAILABLE",
         "message": "Catalog is temporarily unavailable",
     }
+
+
+def test_legacy_products_path_returns_404(client: TestClient) -> None:
+    override_b2b(client, FakeB2BClient([]))
+
+    response = client.get("/api/v1/products")
+
+    assert response.status_code == 404

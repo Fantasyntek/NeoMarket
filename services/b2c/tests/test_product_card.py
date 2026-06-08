@@ -82,36 +82,43 @@ def product_payload(
 def test_product_card_returns_full_data_with_skus(client: TestClient) -> None:
     fake_b2b = override_b2b(client, FakeB2BClient(product_payload()))
 
-    response = client.get(f"/api/v1/products/{PRODUCT_ID}")
+    response = client.get(f"/api/v1/catalog/products/{PRODUCT_ID}")
 
     assert response.status_code == 200
     body = response.json()
     assert fake_b2b.requested_product_ids == [PRODUCT_ID]
     assert body["id"] == PRODUCT_ID
     assert body["slug"] == "iphone-15-pro-max"
-    assert body["title"] == "iPhone 15 Pro Max"
+    assert body["name"] == "iPhone 15 Pro Max"
+    assert body["min_price"] == 12999000
+    assert body["has_stock"] is True
     assert body["description"] == "Flagship Apple smartphone"
     assert body["images"] == [
-        {"url": "/s3/iphone-front.jpg", "ordering": 0},
-        {"url": "/s3/iphone-back.jpg", "ordering": 1},
+        {"id": "image-1", "url": "/s3/iphone-front.jpg", "ordering": 0},
+        {"id": "image-2", "url": "/s3/iphone-back.jpg", "ordering": 1},
     ]
-    assert body["characteristics"] == [{"name": "Brand", "value": "Apple"}]
+    assert body["attributes"] == {"Brand": "Apple"}
     assert body["skus"][0] == {
         "id": "660e8400-e29b-41d4-a716-446655440001",
         "name": "256GB Black",
         "price": 12999000,
-        "discount": 0,
-        "image": "/s3/iphone-black.jpg",
-        "active_quantity": 10,
-        "in_stock": True,
-        "characteristics": [{"name": "Color", "value": "Black"}],
+        "old_price": None,
+        "available_quantity": 10,
+        "attributes": {"Color": "Black"},
+        "images": [
+            {
+                "id": "660e8400-e29b-41d4-a716-446655440001",
+                "url": "/s3/iphone-black.jpg",
+                "ordering": 0,
+            }
+        ],
     }
 
 
 def test_cost_price_absent_in_response(client: TestClient) -> None:
     override_b2b(client, FakeB2BClient(product_payload()))
 
-    response = client.get(f"/api/v1/products/{PRODUCT_ID}")
+    response = client.get(f"/api/v1/catalog/products/{PRODUCT_ID}")
 
     assert response.status_code == 200
     first_sku = response.json()["skus"][0]
@@ -123,7 +130,7 @@ def test_cost_price_absent_in_response(client: TestClient) -> None:
 def test_blocked_product_returns_404(client: TestClient) -> None:
     override_b2b(client, FakeB2BClient(product_payload(status="BLOCKED")))
 
-    response = client.get(f"/api/v1/products/{PRODUCT_ID}")
+    response = client.get(f"/api/v1/catalog/products/{PRODUCT_ID}")
 
     assert response.status_code == 404
     assert response.json() == {
@@ -135,7 +142,7 @@ def test_blocked_product_returns_404(client: TestClient) -> None:
 def test_deleted_product_returns_404(client: TestClient) -> None:
     override_b2b(client, FakeB2BClient(product_payload(deleted=True)))
 
-    response = client.get(f"/api/v1/products/{PRODUCT_ID}")
+    response = client.get(f"/api/v1/catalog/products/{PRODUCT_ID}")
 
     assert response.status_code == 404
     assert response.json() == {
@@ -147,10 +154,10 @@ def test_deleted_product_returns_404(client: TestClient) -> None:
 def test_sku_without_stock_is_shown_as_unavailable(client: TestClient) -> None:
     override_b2b(client, FakeB2BClient(product_payload()))
 
-    response = client.get(f"/api/v1/products/{PRODUCT_ID}")
+    response = client.get(f"/api/v1/catalog/products/{PRODUCT_ID}")
 
     assert response.status_code == 200
     unavailable_sku = response.json()["skus"][1]
-    assert unavailable_sku["active_quantity"] == 0
-    assert unavailable_sku["in_stock"] is False
-    assert unavailable_sku["discount"] == 500000
+    assert unavailable_sku["available_quantity"] == 0
+    assert unavailable_sku["price"] == 12499000
+    assert unavailable_sku["old_price"] == 12999000

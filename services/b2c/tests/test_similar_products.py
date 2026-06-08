@@ -63,7 +63,7 @@ def catalog_product(
         "status": "MODERATED",
         "deleted": False,
         "category": category,
-        "images": [{"url": f"/s3/{product_id}.jpg", "ordering": 0}],
+        "images": [{"id": product_id, "url": f"/s3/{product_id}.jpg", "ordering": 0}],
         "characteristics": [{"name": "Brand", "value": "Apple"}],
         "skus": [
             {
@@ -81,7 +81,7 @@ def catalog_product(
     }
 
 
-def test_similar_returns_up_to_8_from_same_category(client: TestClient) -> None:
+def test_similar_returns_up_to_10_from_same_category(client: TestClient) -> None:
     current_product = catalog_product(CURRENT_PRODUCT_ID)
     category_products = [current_product] + [
         catalog_product(f"770e8400-e29b-41d4-a716-4466554400{index:02d}")
@@ -95,16 +95,13 @@ def test_similar_returns_up_to_8_from_same_category(client: TestClient) -> None:
         ),
     )
 
-    response = client.get(f"/api/v1/products/{CURRENT_PRODUCT_ID}/similar")
+    response = client.get(f"/api/v1/catalog/products/{CURRENT_PRODUCT_ID}/similar")
 
     assert response.status_code == 200
     body = response.json()
-    item_ids = [item["id"] for item in body["items"]]
-    assert len(item_ids) == 8
+    item_ids = [item["id"] for item in body]
+    assert len(item_ids) == 10
     assert CURRENT_PRODUCT_ID not in item_ids
-    assert body["total_count"] == 10
-    assert body["limit"] == 8
-    assert body["offset"] == 0
     assert fake_b2b.product_requests == [CURRENT_PRODUCT_ID]
     assert fake_b2b.list_requests[0]["category_id"] == CHILD_CATEGORY_ID
 
@@ -119,21 +116,16 @@ def test_empty_category_returns_200_empty_list(client: TestClient) -> None:
         ),
     )
 
-    response = client.get(f"/api/v1/products/{CURRENT_PRODUCT_ID}/similar")
+    response = client.get(f"/api/v1/catalog/products/{CURRENT_PRODUCT_ID}/similar")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "items": [],
-        "total_count": 0,
-        "limit": 8,
-        "offset": 0,
-    }
+    assert response.json() == []
 
 
 def test_unknown_product_returns_404(client: TestClient) -> None:
     override_b2b(client, FakeB2BClient(None))
 
-    response = client.get(f"/api/v1/products/{CURRENT_PRODUCT_ID}/similar")
+    response = client.get(f"/api/v1/catalog/products/{CURRENT_PRODUCT_ID}/similar")
 
     assert response.status_code == 404
     assert response.json() == {
@@ -164,13 +156,13 @@ def test_similar_fills_from_parent_category_when_needed(client: TestClient) -> N
     )
 
     response = client.get(
-        f"/api/v1/products/{CURRENT_PRODUCT_ID}/similar",
+        f"/api/v1/catalog/products/{CURRENT_PRODUCT_ID}/similar",
         params={"limit": 2},
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert [item["id"] for item in body["items"]] == [
+    assert [item["id"] for item in body] == [
         same_category_product["id"],
         parent_category_product["id"],
     ]

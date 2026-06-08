@@ -121,6 +121,14 @@ Inventory reservation endpoints follow the B2B OpenAPI paths `POST /api/v1/inven
 
 Delivered orders are finalized through `POST /api/v1/inventory/fulfill`. A successful request returns `{order_id, status: "FULFILLED", processed_at}`, and the complete response is stored by `order_id`. Idempotent retries therefore return the original processing timestamp without decreasing `reserved_quantity` twice.
 
+## B2C Catalog Product Contract
+
+B2C product routes use the `/api/v1/catalog/products` namespace for listing, detail, and similar products. The list accepts `q`, OpenAPI sort values, and singular `filter[...]` deep-object parameters, while all product serializers emit the shared `CatalogProductCard` fields. Product details add buyer-safe SKU data with `available_quantity`, and similar products return a flat array as required by the contract.
+
+## B2C Category Navigation Contract
+
+Category navigation exposes a flat `GET /api/v1/catalog/categories` response and a separate nested `GET /api/v1/catalog/categories/tree` response. Both representations include the required `level` and root-to-node `path` fields. The hierarchy is validated for missing parents and cycles before either representation is returned.
+
 ## B2B Seller Product List Contract
 
 Seller product list items include the required `slug` and `category_id` fields in addition to aggregate SKU counters. Soft-deleted products are excluded by default and are returned only when `include_deleted=true`, matching the B2B OpenAPI contract. Seller ownership continues to come exclusively from the JWT claim, so query parameters cannot widen the result set.
