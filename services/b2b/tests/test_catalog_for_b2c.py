@@ -66,7 +66,7 @@ def test_catalog_returns_moderated_in_stock_products(
     deleted_product = create_product_fixture(db_session, "Deleted iPhone", deleted=True)
     create_sku_fixture(db_session, deleted_product, active_quantity=5)
 
-    response = client.get("/api/v1/products", headers=SERVICE_HEADERS)
+    response = client.get("/api/v1/public/products", headers=SERVICE_HEADERS)
 
     assert response.status_code == 200
     body = response.json()
@@ -86,19 +86,19 @@ def test_catalog_excludes_hard_blocked(
     )
     create_sku_fixture(db_session, hard_blocked_product, active_quantity=5)
 
-    response = client.get("/api/v1/products", headers=SERVICE_HEADERS)
+    response = client.get("/api/v1/public/products", headers=SERVICE_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["items"] == []
 
 
 def test_catalog_missing_service_key_returns_401(client: TestClient) -> None:
-    response = client.get("/api/v1/products")
+    response = client.get("/api/v1/public/products")
 
     assert response.status_code == 401
     assert response.json() == {
         "code": "UNAUTHORIZED",
-        "message": "Authorization required",
+        "message": "Invalid service key",
     }
 
 
@@ -108,7 +108,7 @@ def test_catalog_response_has_no_cost_price(
     product = create_product_fixture(db_session, "Visible iPhone")
     create_sku_fixture(db_session, product, active_quantity=5)
 
-    response = client.get("/api/v1/products", headers=SERVICE_HEADERS)
+    response = client.get("/api/v1/public/products", headers=SERVICE_HEADERS)
 
     assert response.status_code == 200
     sku_payload = response.json()["items"][0]["skus"][0]
@@ -125,11 +125,28 @@ def test_batch_ids_returns_visible_subset(
     create_sku_fixture(db_session, hidden_product, active_quantity=5)
     out_of_stock_product = create_product_fixture(db_session, "Out Of Stock iPhone")
     create_sku_fixture(db_session, out_of_stock_product, active_quantity=0)
-    ids = ",".join([visible_product.id, hidden_product.id, out_of_stock_product.id])
-
-    response = client.get(f"/api/v1/products?ids={ids}", headers=SERVICE_HEADERS)
+    response = client.post(
+        "/api/v1/public/products/batch",
+        headers=SERVICE_HEADERS,
+        json={
+            "product_ids": [
+                visible_product.id,
+                hidden_product.id,
+                out_of_stock_product.id,
+            ]
+        },
+    )
 
     assert response.status_code == 200
     body = response.json()
-    assert [item["id"] for item in body["items"]] == [visible_product.id]
-    assert body["total_count"] == 1
+    assert [item["id"] for item in body] == [visible_product.id]
+
+
+def test_seller_catalog_does_not_accept_service_key(client: TestClient) -> None:
+    response = client.get("/api/v1/products", headers=SERVICE_HEADERS)
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "code": "UNAUTHORIZED",
+        "message": "Authorization required",
+    }

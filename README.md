@@ -104,3 +104,7 @@ For similar products I considered random selection from the same category, ranki
 ## US-CAT-05 ADR
 
 For category hierarchy storage I considered PostgreSQL `ltree`, adjacency list with recursive traversal, and materialized path. I chose adjacency list for this service boundary because B2C receives a flat category list from B2B and can build trees and breadcrumbs without storing its own category projection. Breadcrumb lookup is fast enough for the small MVP tree after building an in-memory id index, and orphan detection is straightforward because every `parent_id` must exist in that same index. `ltree` and materialized path would speed up deep breadcrumb queries at scale, but they add database-specific storage decisions before B2C owns category persistence.
+
+## B2B Public Catalog Contract
+
+The seller cabinet and service-to-service catalog use separate routes. Seller requests use Bearer JWT on `/api/v1/products`, while B2C uses `X-Service-Key` on `/api/v1/public/products`, `/api/v1/public/products/batch`, and `/api/v1/public/products/{product_id}`. I considered keeping one route with an authorization-header branch, rewriting the path at ingress, and exposing a dedicated public router. The dedicated router matches the OpenAPI contract directly and makes seller-only fields such as `cost_price` and `reserved_quantity` unavailable by construction in public responses.

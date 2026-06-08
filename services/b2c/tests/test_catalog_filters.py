@@ -125,7 +125,7 @@ def test_catalog_returns_filtered_sorted_products(client: TestClient) -> None:
         "limit": 1,
         "offset": 0,
     }
-    assert fake_b2b.calls[0]["category"] == IOS_CATEGORY_ID
+    assert fake_b2b.calls[0]["category_id"] == IOS_CATEGORY_ID
     assert fake_b2b.calls[0]["limit"] == 100
 
 
