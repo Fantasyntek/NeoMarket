@@ -66,6 +66,27 @@ def build_moderated_event(
     }
 
 
+def build_blocked_event(
+    product_id: str,
+    moderator_id: str,
+    blocking_reason_id: str,
+    moderator_comment: str | None,
+    field_reports: list[dict[str, str | None]],
+    occurred_at: datetime,
+) -> dict[str, Any]:
+    return {
+        "idempotency_key": str(uuid4()),
+        "product_id": product_id,
+        "event_type": "BLOCKED",
+        "moderator_id": moderator_id,
+        "moderator_comment": moderator_comment,
+        "blocking_reason_id": blocking_reason_id,
+        "hard_block": False,
+        "field_reports": field_reports,
+        "occurred_at": utc_now_iso(occurred_at),
+    }
+
+
 def record_b2b_outbox_event(
     db: Session,
     payload: dict[str, Any],

@@ -256,3 +256,11 @@ For delivering a MODERATED decision to B2B I considered a synchronous HTTP reque
 ## Moderation Product Approval
 
 The OpenAPI `POST /api/v1/tickets/{ticket_id}/approve` endpoint and canonical product-moderation alias require the card to be `IN_REVIEW`, assigned to the JWT moderator, unchanged since claim, and backed by at least one SKU in the current snapshot. Approval changes the card to `MODERATED` and writes a B2B outbox event using the `/api/v1/moderation/events` contract. Content and review revision numbers reject stale approvals after an EDITED event, while the outbox idempotency key prevents duplicate catalog publication. Failed deliveries remain `PENDING` and can be retried with `python -m app.retry_b2b_events`.
+
+## US-MOD-04 ADR
+
+For field-level moderation feedback I considered a child table with one row per report, a JSON array on the moderation card, and event sourcing. I chose a separate table because analytics can filter and aggregate directly by `field_name` without parsing JSON, while adding optional report columns remains a conventional migration. JSON would reduce joins but make field analytics database-specific, and event sourcing would add replay complexity beyond the current scope. Hard-block reasons are rejected by the soft-block endpoint with `400` rather than silently routing to a terminal decision.
+
+## Moderation Soft Block
+
+Moderators soft-block an owned `IN_REVIEW` card through OpenAPI `POST /api/v1/tickets/{ticket_id}/block` or canonical `POST /api/v1/products/{product_id}/decline`. The handler validates an active non-hard blocking reason, normalizes OpenAPI `field_path/message` into the canonical field enum, stores reports in a queryable table, and changes the card to `BLOCKED`. A `BLOCKED` event with `hard_block=false`, the selected reason, comment, and field reports is delivered to B2B through the durable outbox.
