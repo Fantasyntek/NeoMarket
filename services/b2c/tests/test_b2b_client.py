@@ -47,6 +47,15 @@ def test_http_b2b_client_uses_public_sku_routes(monkeypatch: Any) -> None:
             }
         ],
     )
+    client.fulfill(
+        order_id="66666666-7777-8888-9999-000000000000",
+        items=[
+            {
+                "sku_id": "660e8400-e29b-41d4-a716-446655440001",
+                "quantity": 2,
+            }
+        ],
+    )
 
     assert calls[0]["method"] == "get"
     assert calls[0]["url"].endswith(
@@ -72,6 +81,17 @@ def test_http_b2b_client_uses_public_sku_routes(monkeypatch: Any) -> None:
     assert calls[3]["method"] == "post"
     assert calls[3]["url"].endswith("/api/v1/inventory/unreserve")
     assert calls[3]["json"] == {
+        "order_id": "66666666-7777-8888-9999-000000000000",
+        "items": [
+            {
+                "sku_id": "660e8400-e29b-41d4-a716-446655440001",
+                "quantity": 2,
+            }
+        ],
+    }
+    assert calls[4]["method"] == "post"
+    assert calls[4]["url"].endswith("/api/v1/inventory/fulfill")
+    assert calls[4]["json"] == {
         "order_id": "66666666-7777-8888-9999-000000000000",
         "items": [
             {

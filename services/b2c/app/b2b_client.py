@@ -53,6 +53,14 @@ class B2BClient(Protocol):
     ) -> dict[str, Any]:
         pass
 
+    def fulfill(
+        self,
+        *,
+        order_id: str,
+        items: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        pass
+
     def list_categories(self) -> dict[str, Any]:
         pass
 
@@ -164,6 +172,18 @@ class HttpB2BClient:
         return self._request_public_sku(
             "post",
             "/api/v1/inventory/unreserve",
+            json={"order_id": order_id, "items": items},
+        )
+
+    def fulfill(
+        self,
+        *,
+        order_id: str,
+        items: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._request_public_sku(
+            "post",
+            "/api/v1/inventory/fulfill",
             json={"order_id": order_id, "items": items},
         )
 

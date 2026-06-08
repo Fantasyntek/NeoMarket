@@ -212,3 +212,11 @@ For event idempotency I considered a dedicated processed-events table, storing t
 ## B2C Product Events
 
 B2C receives `PRODUCT_BLOCKED`, `PRODUCT_DELETED`, and `SKU_OUT_OF_STOCK` through canonical `POST /api/v1/events/product` and updates matching cart rows with a single batch statement. Orders and their immutable price snapshots are never modified. Duplicate keys return success without applying the update again, and every request requires `X-Service-Key`. The OpenAPI `POST /api/v1/b2b/events` route and nested `event_type`/`payload` shape are supported by the same normalizer, while the flat canonical shape remains compatible with the current B2B dispatcher.
+
+## US-ORD-05 ADR
+
+For triggering fulfillment I considered a model save signal, an admin-only action, and overriding the model save method. I chose an explicit order lifecycle service because the project uses FastAPI and SQLAlchemy rather than Django, and the hook can be called from an admin action, worker, or future status endpoint without hidden network side effects in persistence code. The service records `DELIVERED` before calling B2B, so a failed request cannot roll the physical delivery back, while B2B idempotency by `order_id` makes accidental repeated calls safe. This approach is straightforward to test without Django Admin and keeps retry scheduling visible.
+
+## B2C Delivery Fulfillment
+
+`transition_order_to_delivered` is the lifecycle hook used when an administrator marks an order delivered. It persists `DELIVERED` and `delivered_at`, then calls B2B `POST /api/v1/inventory/fulfill` using immutable order quantities. Failures create a durable fulfillment retry without changing the delivered status; retries run with exponential backoff through `python -m app.retry_fulfillments`. Repeating the trigger sends the same `order_id`, relying on the existing B2B idempotency contract to avoid double deduction.

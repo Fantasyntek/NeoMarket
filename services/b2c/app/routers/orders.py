@@ -179,6 +179,9 @@ def _serialize_order(db: Session, order: Order) -> dict[str, Any]:
         "created_at": created_at,
         "updated_at": updated_at,
         "paid_at": updated_at if order.status == "PAID" else None,
+        "delivered_at": (
+            order.delivered_at.isoformat() if order.delivered_at else None
+        ),
     }
 
 
