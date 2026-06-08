@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Response
 from sqlalchemy.orm import Session
 
 from app.auth import is_valid_service_key
@@ -37,32 +38,44 @@ def _require_uuid(payload: dict[str, Any], field: str) -> str:
         raise api_error(400, "INVALID_REQUEST", f"{field} must be a valid UUID")
 
 
-def _require_status(payload: dict[str, Any]) -> str:
-    status = payload.get("status")
-    if status not in {"MODERATED", "BLOCKED"}:
-        raise api_error(400, "INVALID_REQUEST", "status must be MODERATED or BLOCKED")
-    return status
+def _require_event_type(payload: dict[str, Any]) -> str:
+    event_type = payload.get("event_type")
+    if event_type not in {"MODERATED", "BLOCKED"}:
+        raise api_error(
+            400,
+            "INVALID_REQUEST",
+            "event_type must be MODERATED or BLOCKED",
+        )
+    return event_type
 
 
-def _require_blocking_reason(payload: dict[str, Any]) -> dict[str, str]:
-    reason = payload.get("blocking_reason")
-    if not isinstance(reason, dict):
-        raise api_error(400, "INVALID_REQUEST", "blocking_reason is required")
-
-    reason_id = reason.get("id")
-    if not isinstance(reason_id, str) or not reason_id.strip():
-        raise api_error(400, "INVALID_REQUEST", "blocking_reason.id is required")
+def _require_occurred_at(payload: dict[str, Any]) -> datetime:
+    value = payload.get("occurred_at")
+    if not isinstance(value, str) or not value.strip():
+        raise api_error(400, "INVALID_REQUEST", "occurred_at is required")
     try:
-        reason_id = str(UUID(reason_id))
+        occurred_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        raise api_error(400, "INVALID_REQUEST", "blocking_reason.id must be a valid UUID")
-    title = reason.get("title")
-    comment = reason.get("comment")
-    if not isinstance(title, str) or not title.strip():
-        raise api_error(400, "INVALID_REQUEST", "blocking_reason.title is required")
-    if not isinstance(comment, str) or not comment.strip():
-        raise api_error(400, "INVALID_REQUEST", "blocking_reason.comment is required")
-    return {"id": reason_id, "title": title.strip(), "comment": comment.strip()}
+        raise api_error(400, "INVALID_REQUEST", "occurred_at must be a valid date-time")
+    if occurred_at.tzinfo is None:
+        raise api_error(400, "INVALID_REQUEST", "occurred_at must include a timezone")
+    return occurred_at
+
+
+def _optional_string(payload: dict[str, Any], field: str) -> str | None:
+    value = payload.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise api_error(400, "INVALID_REQUEST", f"{field} must be a string")
+    return value.strip()
+
+
+def _optional_boolean(payload: dict[str, Any], field: str, default: bool) -> bool:
+    value = payload.get(field, default)
+    if not isinstance(value, bool):
+        raise api_error(400, "INVALID_REQUEST", f"{field} must be a boolean")
+    return value
 
 
 def _validate_field_reports(payload: dict[str, Any]) -> list[dict[str, str | None]]:
@@ -95,27 +108,39 @@ def _validate_field_reports(payload: dict[str, Any]) -> list[dict[str, str | Non
     return reports
 
 
-@router.post("/events/moderation")
+@router.post("/moderation/events", status_code=204)
 def apply_moderation_event(
     payload: dict[str, Any],
     db: Session = Depends(get_db),
     b2c_dispatcher: B2CDispatcher = Depends(get_b2c_dispatcher),
     x_service_key: str | None = Header(default=None, alias="X-Service-Key"),
-) -> dict[str, bool]:
+) -> Response:
     _require_service_key(x_service_key)
     idempotency_key = _require_uuid(payload, "idempotency_key")
-    if db.get(ProcessedModerationEvent, idempotency_key) is not None:
-        return {"ok": True}
-
     product_id = _require_uuid(payload, "product_id")
-    status = _require_status(payload)
+    event_type = _require_event_type(payload)
+    _require_occurred_at(payload)
+
+    hard_block = False
+    blocking_reason_id = None
+    moderator_comment = None
+    field_reports: list[dict[str, str | None]] = []
+    if event_type == "BLOCKED":
+        blocking_reason_id = _require_uuid(payload, "blocking_reason_id")
+        moderator_comment = _optional_string(payload, "moderator_comment")
+        hard_block = _optional_boolean(payload, "hard_block", False)
+        field_reports = _validate_field_reports(payload)
+
+    if db.get(ProcessedModerationEvent, idempotency_key) is not None:
+        return Response(status_code=204)
+
     product = db.get(Product, product_id)
     if product is None:
         raise api_error(404, "NOT_FOUND", "Product not found")
 
     b2c_payload: dict[str, Any] | None = None
     b2c_outbox_event = None
-    if status == "MODERATED":
+    if event_type == "MODERATED":
         product.status = "MODERATED"
         product.blocked = False
         product.blocking_reason_id = None
@@ -123,15 +148,11 @@ def apply_moderation_event(
         product.moderator_comment = None
         product.field_reports = []
     else:
-        hard_block = bool(payload.get("hard_block", False))
-        blocking_reason = _require_blocking_reason(payload)
-        field_reports = _validate_field_reports(payload)
-
         product.status = "HARD_BLOCKED" if hard_block else "BLOCKED"
         product.blocked = True
-        product.blocking_reason_id = blocking_reason["id"]
-        product.blocking_reason_title = blocking_reason["title"]
-        product.moderator_comment = blocking_reason["comment"]
+        product.blocking_reason_id = blocking_reason_id
+        product.blocking_reason_title = None
+        product.moderator_comment = moderator_comment
         product.field_reports = [
             ProductFieldReport(
                 field_name=report["field_name"] or "",
@@ -155,4 +176,4 @@ def apply_moderation_event(
     )
     db.commit()
     dispatch_b2c_and_mark_sent(db, b2c_dispatcher, b2c_payload, b2c_outbox_event)
-    return {"ok": True}
+    return Response(status_code=204)

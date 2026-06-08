@@ -108,3 +108,7 @@ For category hierarchy storage I considered PostgreSQL `ltree`, adjacency list w
 ## B2B Public Catalog Contract
 
 The seller cabinet and service-to-service catalog use separate routes. Seller requests use Bearer JWT on `/api/v1/products`, while B2C uses `X-Service-Key` on `/api/v1/public/products`, `/api/v1/public/products/batch`, and `/api/v1/public/products/{product_id}`. I considered keeping one route with an authorization-header branch, rewriting the path at ingress, and exposing a dedicated public router. The dedicated router matches the OpenAPI contract directly and makes seller-only fields such as `cost_price` and `reserved_quantity` unavailable by construction in public responses.
+
+## B2B Moderation Event Contract
+
+Moderation decisions are accepted at `POST /api/v1/moderation/events` with `X-Service-Key`. The request follows `ModerationEventRequest`: `event_type` selects `MODERATED` or `BLOCKED`, `occurred_at` is a required timezone-aware date-time, and blocking data is supplied through the flat `blocking_reason_id`, `moderator_comment`, and `field_reports` fields. Successful processing and idempotent duplicates return `204 No Content`.

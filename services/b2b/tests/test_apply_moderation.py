@@ -12,6 +12,7 @@ TEST_SELLER_ID = "c3d4e5f6-a7b8-9012-cdef-123456789012"
 SERVICE_HEADERS = {"X-Service-Key": "dev-service-key"}
 EVENT_KEY = "11111111-2222-3333-4444-555555555555"
 BLOCKING_REASON_ID = "a7b8c9d0-1234-5678-ef01-890123456789"
+OCCURRED_AT = "2026-06-08T10:30:00Z"
 
 
 class FakeB2CDispatcher:
@@ -84,13 +85,11 @@ def blocked_payload(product_id: str, hard_block: bool = False, key: str = EVENT_
     return {
         "idempotency_key": key,
         "product_id": product_id,
-        "status": "BLOCKED",
+        "event_type": "BLOCKED",
+        "occurred_at": OCCURRED_AT,
         "hard_block": hard_block,
-        "blocking_reason": {
-            "id": BLOCKING_REASON_ID,
-            "title": "Description does not match product",
-            "comment": "Description and photos do not match",
-        },
+        "blocking_reason_id": BLOCKING_REASON_ID,
+        "moderator_comment": "Description and photos do not match",
         "field_reports": [
             {
                 "field_name": "description",
@@ -120,17 +119,18 @@ def test_moderated_event_clears_blocking_data(
     override_b2c(client)
 
     response = client.post(
-        "/api/v1/events/moderation",
+        "/api/v1/moderation/events",
         json={
             "idempotency_key": EVENT_KEY,
             "product_id": product.id,
-            "status": "MODERATED",
+            "event_type": "MODERATED",
+            "occurred_at": OCCURRED_AT,
         },
         headers=SERVICE_HEADERS,
     )
 
     db_session.refresh(product)
-    assert response.status_code == 200
+    assert response.status_code == 204
     assert product.status == "MODERATED"
     assert product.blocked is False
     assert product.blocking_reason_id is None
@@ -148,16 +148,17 @@ def test_blocked_soft_saves_field_reports(
     fake_b2c = override_b2c(client)
 
     response = client.post(
-        "/api/v1/events/moderation",
+        "/api/v1/moderation/events",
         json=blocked_payload(product.id, hard_block=False),
         headers=SERVICE_HEADERS,
     )
 
     db_session.refresh(product)
-    assert response.status_code == 200
+    assert response.status_code == 204
     assert product.status == "BLOCKED"
     assert product.blocked is True
-    assert product.blocking_reason_title == "Description does not match product"
+    assert product.blocking_reason_id == BLOCKING_REASON_ID
+    assert product.moderator_comment == "Description and photos do not match"
     assert len(product.field_reports) == 1
     assert product.field_reports[0].field_name == "description"
     assert len(fake_b2c.events) == 1
@@ -176,13 +177,13 @@ def test_blocked_hard_sets_terminal_status(
     fake_b2c = override_b2c(client)
 
     response = client.post(
-        "/api/v1/events/moderation",
+        "/api/v1/moderation/events",
         json=blocked_payload(product.id, hard_block=True),
         headers=SERVICE_HEADERS,
     )
 
     db_session.refresh(product)
-    assert response.status_code == 200
+    assert response.status_code == 204
     assert product.status == "HARD_BLOCKED"
     assert product.blocked is True
     assert len(fake_b2c.events) == 1
@@ -217,19 +218,19 @@ def test_duplicate_event_same_idempotency_key_no_side_effects(
     payload = blocked_payload(product.id, hard_block=False)
 
     first_response = client.post(
-        "/api/v1/events/moderation",
+        "/api/v1/moderation/events",
         json=payload,
         headers=SERVICE_HEADERS,
     )
     second_response = client.post(
-        "/api/v1/events/moderation",
+        "/api/v1/moderation/events",
         json={**payload, "hard_block": True},
         headers=SERVICE_HEADERS,
     )
 
     db_session.refresh(product)
-    assert first_response.status_code == 200
-    assert second_response.status_code == 200
+    assert first_response.status_code == 204
+    assert second_response.status_code == 204
     assert product.status == "BLOCKED"
     assert len(product.field_reports) == 1
     assert len(fake_b2c.events) == 1
@@ -243,13 +244,57 @@ def test_missing_service_key_returns_401(
     product = create_product_fixture(db_session)
 
     response = client.post(
-        "/api/v1/events/moderation",
+        "/api/v1/moderation/events",
         json={
             "idempotency_key": EVENT_KEY,
             "product_id": product.id,
-            "status": "MODERATED",
+            "event_type": "MODERATED",
+            "occurred_at": OCCURRED_AT,
         },
     )
 
     assert response.status_code == 401
     assert response.json() == {"code": "UNAUTHORIZED", "message": "Invalid service key"}
+
+
+def test_missing_occurred_at_returns_400(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    product = create_product_fixture(db_session)
+
+    response = client.post(
+        "/api/v1/moderation/events",
+        json={
+            "idempotency_key": EVENT_KEY,
+            "product_id": product.id,
+            "event_type": "MODERATED",
+        },
+        headers=SERVICE_HEADERS,
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "code": "INVALID_REQUEST",
+        "message": "occurred_at is required",
+    }
+
+
+def test_legacy_moderation_event_path_returns_404(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    product = create_product_fixture(db_session)
+
+    response = client.post(
+        "/api/v1/events/moderation",
+        json={
+            "idempotency_key": EVENT_KEY,
+            "product_id": product.id,
+            "event_type": "MODERATED",
+            "occurred_at": OCCURRED_AT,
+        },
+        headers=SERVICE_HEADERS,
+    )
+
+    assert response.status_code == 404
