@@ -69,6 +69,7 @@ def create_sku_fixture(
 def reserve_payload(sku: SKU, quantity: int, key: str = RESERVE_KEY) -> dict[str, Any]:
     return {
         "idempotency_key": key,
+        "order_id": ORDER_ID,
         "items": [{"sku_id": sku.id, "quantity": quantity}],
     }
 
@@ -82,9 +83,10 @@ def test_reserve_all_skus_succeeds(
     override_b2c(client)
 
     response = client.post(
-        "/api/v1/reserve",
+        "/api/v1/inventory/reserve",
         json={
             "idempotency_key": RESERVE_KEY,
+            "order_id": ORDER_ID,
             "items": [
                 {"sku_id": sku_1.id, "quantity": 2},
                 {"sku_id": sku_2.id, "quantity": 1},
@@ -96,13 +98,9 @@ def test_reserve_all_skus_succeeds(
     db_session.refresh(sku_1)
     db_session.refresh(sku_2)
     assert response.status_code == 200
-    assert response.json() == {
-        "reserved": True,
-        "items": [
-            {"sku_id": sku_1.id, "reserved_quantity": 2, "remaining_stock": 3},
-            {"sku_id": sku_2.id, "reserved_quantity": 1, "remaining_stock": 3},
-        ],
-    }
+    assert response.json()["order_id"] == ORDER_ID
+    assert response.json()["status"] == "RESERVED"
+    assert response.json()["reserved_at"].endswith("Z")
     assert sku_1.active_quantity == 3
     assert sku_1.reserved_quantity == 2
     assert sku_2.active_quantity == 3
@@ -123,9 +121,10 @@ def test_partial_insufficient_stock_returns_409_all_rollback(
     override_b2c(client)
 
     response = client.post(
-        "/api/v1/reserve",
+        "/api/v1/inventory/reserve",
         json={
             "idempotency_key": RESERVE_KEY,
+            "order_id": ORDER_ID,
             "items": [
                 {"sku_id": enough_sku.id, "quantity": 2},
                 {"sku_id": low_stock_sku.id, "quantity": 3},
@@ -163,12 +162,12 @@ def test_idempotent_reserve_returns_200_without_double_deduction(
     override_b2c(client)
 
     first_response = client.post(
-        "/api/v1/reserve",
+        "/api/v1/inventory/reserve",
         json=reserve_payload(sku, quantity=2),
         headers=SERVICE_HEADERS,
     )
     second_response = client.post(
-        "/api/v1/reserve",
+        "/api/v1/inventory/reserve",
         json=reserve_payload(sku, quantity=2),
         headers=SERVICE_HEADERS,
     )
@@ -189,7 +188,7 @@ def test_sku_out_of_stock_event_emitted(
     fake_b2c = override_b2c(client)
 
     response = client.post(
-        "/api/v1/reserve",
+        "/api/v1/inventory/reserve",
         json=reserve_payload(sku, quantity=2),
         headers=SERVICE_HEADERS,
     )
@@ -217,13 +216,52 @@ def test_unreserve_restores_quantities(
     )
 
     response = client.post(
-        "/api/v1/unreserve",
+        "/api/v1/inventory/unreserve",
         json={"order_id": ORDER_ID, "items": [{"sku_id": sku.id, "quantity": 2}]},
         headers=SERVICE_HEADERS,
     )
 
     db_session.refresh(sku)
     assert response.status_code == 200
-    assert response.json() == {"ok": True}
+    assert response.json()["order_id"] == ORDER_ID
+    assert response.json()["status"] == "UNRESERVED"
+    assert response.json()["processed_at"].endswith("Z")
     assert sku.active_quantity == 5
     assert sku.reserved_quantity == 0
+
+
+def test_reserve_missing_order_id_returns_400(
+    client: TestClient, db_session: Session
+) -> None:
+    product = create_product_fixture(db_session)
+    sku = create_sku_fixture(db_session, product, active_quantity=5)
+
+    response = client.post(
+        "/api/v1/inventory/reserve",
+        json={
+            "idempotency_key": RESERVE_KEY,
+            "items": [{"sku_id": sku.id, "quantity": 1}],
+        },
+        headers=SERVICE_HEADERS,
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "code": "INVALID_REQUEST",
+        "message": "order_id is required",
+    }
+
+
+def test_legacy_reserve_path_returns_404(
+    client: TestClient, db_session: Session
+) -> None:
+    product = create_product_fixture(db_session)
+    sku = create_sku_fixture(db_session, product, active_quantity=5)
+
+    response = client.post(
+        "/api/v1/reserve",
+        json=reserve_payload(sku, quantity=1),
+        headers=SERVICE_HEADERS,
+    )
+
+    assert response.status_code == 404

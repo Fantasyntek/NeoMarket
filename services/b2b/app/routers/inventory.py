@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 from typing import Any
 from uuid import UUID
@@ -74,6 +75,10 @@ def _load_skus_for_update(db: Session, sku_ids: list[str]) -> dict[str, SKU]:
     }
 
 
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _reserve_failed_response(
     items: list[dict[str, Any]],
     skus_by_id: dict[str, SKU],
@@ -97,7 +102,7 @@ def _reserve_failed_response(
     )
 
 
-@router.post("/reserve", response_model=None)
+@router.post("/inventory/reserve", response_model=None)
 def reserve_skus(
     payload: dict[str, Any],
     db: Session = Depends(get_db),
@@ -106,6 +111,7 @@ def reserve_skus(
 ) -> dict[str, Any] | JSONResponse:
     _require_service_key(x_service_key)
     idempotency_key = _require_uuid(payload, "idempotency_key")
+    order_id = _require_uuid(payload, "order_id")
     existing_operation = db.get(ReserveOperation, idempotency_key)
     if existing_operation is not None:
         return json.loads(existing_operation.result_json)
@@ -120,25 +126,21 @@ def reserve_skus(
         db.rollback()
         return _reserve_failed_response(items, skus_by_id)
 
-    response_items = []
     out_of_stock_events: list[tuple[dict[str, Any], Any]] = []
     for item in items:
         sku = skus_by_id[item["sku_id"]]
         sku.active_quantity -= item["quantity"]
         sku.reserved_quantity += item["quantity"]
-        response_items.append(
-            {
-                "sku_id": sku.id,
-                "reserved_quantity": item["quantity"],
-                "remaining_stock": sku.active_quantity,
-            }
-        )
         if sku.active_quantity == 0:
             event_payload = build_sku_out_of_stock_event(sku.id, sku.product_id)
             outbox_event = record_b2c_outbox_event(db, event_payload)
             out_of_stock_events.append((event_payload, outbox_event))
 
-    result = {"reserved": True, "items": response_items}
+    result = {
+        "order_id": order_id,
+        "status": "RESERVED",
+        "reserved_at": _utc_now(),
+    }
     db.add(
         ReserveOperation(
             idempotency_key=idempotency_key,
@@ -153,12 +155,12 @@ def reserve_skus(
     return result
 
 
-@router.post("/unreserve")
+@router.post("/inventory/unreserve")
 def unreserve_skus(
     payload: dict[str, Any],
     db: Session = Depends(get_db),
     x_service_key: str | None = Header(default=None, alias="X-Service-Key"),
-) -> dict[str, bool]:
+) -> dict[str, str]:
     _require_service_key(x_service_key)
     order_id = _require_uuid(payload, "order_id")
     existing_operation = db.get(UnreserveOperation, order_id)
@@ -179,7 +181,11 @@ def unreserve_skus(
         sku.active_quantity += item["quantity"]
         sku.reserved_quantity -= item["quantity"]
 
-    result = {"ok": True}
+    result = {
+        "order_id": order_id,
+        "status": "UNRESERVED",
+        "processed_at": _utc_now(),
+    }
     db.add(
         UnreserveOperation(
             order_id=order_id,
