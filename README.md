@@ -124,3 +124,7 @@ Delivered orders are finalized through `POST /api/v1/inventory/fulfill`. A succe
 ## B2C Catalog Product Contract
 
 B2C product routes use the `/api/v1/catalog/products` namespace for listing, detail, and similar products. The list accepts `q`, OpenAPI sort values, and singular `filter[...]` deep-object parameters, while all product serializers emit the shared `CatalogProductCard` fields. Product details add buyer-safe SKU data with `available_quantity`, and similar products return a flat array as required by the contract.
+
+## B2C Category Navigation Contract
+
+Category navigation exposes a flat `GET /api/v1/catalog/categories` response and a separate nested `GET /api/v1/catalog/categories/tree` response. Both representations include the required `level` and root-to-node `path` fields. The hierarchy is validated for missing parents and cycles before either representation is returned.
