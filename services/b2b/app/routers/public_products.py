@@ -105,6 +105,22 @@ def _serialize_public_product(
     }
 
 
+def _is_public_product_content(product: Product) -> bool:
+    return product.status == "MODERATED" and not product.deleted
+
+
+def _serialize_public_sku_lookup(sku: SKU) -> dict[str, Any]:
+    return {
+        "product": {
+            "id": sku.product.id,
+            "title": sku.product.title,
+            "status": sku.product.status,
+            "deleted": sku.product.deleted,
+        },
+        "sku": _serialize_public_sku(sku),
+    }
+
+
 def _parse_deep_filters(request: Request) -> dict[str, set[str]]:
     filters: dict[str, set[str]] = defaultdict(set)
     for key, value in request.query_params.multi_items():
@@ -250,6 +266,50 @@ def batch_public_products(
         for product_id in product_ids
         if product_id in products_by_id
     ]
+
+
+@router.post("/skus/batch")
+def batch_public_skus(
+    payload: dict[str, Any],
+    db: Session = Depends(get_db),
+    x_service_key: str | None = Header(default=None, alias="X-Service-Key"),
+) -> list[dict[str, Any]]:
+    _require_service_key(x_service_key)
+    raw_sku_ids = payload.get("sku_ids")
+    if not isinstance(raw_sku_ids, list):
+        raise api_error(400, "INVALID_REQUEST", "sku_ids must be an array")
+    if len(raw_sku_ids) > 100:
+        raise api_error(400, "INVALID_REQUEST", "sku_ids must contain at most 100 items")
+
+    sku_ids = [
+        _normalize_uuid(sku_id, "sku_ids")
+        for sku_id in raw_sku_ids
+        if isinstance(sku_id, str)
+    ]
+    if len(sku_ids) != len(raw_sku_ids):
+        raise api_error(400, "INVALID_REQUEST", "sku_ids must contain valid UUIDs")
+
+    skus = db.query(SKU).filter(SKU.id.in_(sku_ids)).all()
+    skus_by_id = {sku.id: sku for sku in skus}
+    return [
+        _serialize_public_sku_lookup(skus_by_id[sku_id])
+        for sku_id in sku_ids
+        if sku_id in skus_by_id
+    ]
+
+
+@router.get("/skus/{sku_id}")
+def get_public_sku(
+    sku_id: str,
+    db: Session = Depends(get_db),
+    x_service_key: str | None = Header(default=None, alias="X-Service-Key"),
+) -> dict[str, Any]:
+    _require_service_key(x_service_key)
+    normalized_sku_id = _normalize_uuid(sku_id, "sku_id")
+    sku = db.get(SKU, normalized_sku_id)
+    if sku is None or not _is_public_product_content(sku.product):
+        raise api_error(404, "NOT_FOUND", "SKU not found")
+    return _serialize_public_sku_lookup(sku)
 
 
 @router.get("/products/{product_id}")

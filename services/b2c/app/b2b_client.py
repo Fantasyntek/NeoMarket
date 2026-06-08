@@ -30,6 +30,12 @@ class B2BClient(Protocol):
     def batch_products(self, product_ids: list[str]) -> list[dict[str, Any]]:
         pass
 
+    def get_sku(self, sku_id: str) -> dict[str, Any]:
+        pass
+
+    def batch_skus(self, sku_ids: list[str]) -> list[dict[str, Any]]:
+        pass
+
     def list_categories(self) -> dict[str, Any]:
         pass
 
@@ -91,6 +97,43 @@ class HttpB2BClient:
                 json={"product_ids": product_ids},
                 headers={"X-Service-Key": self.service_key},
                 timeout=5.0,
+            )
+        except httpx.RequestError as exc:
+            raise B2BUnavailableError from exc
+
+        if response.status_code >= 500:
+            raise B2BUnavailableError
+        if response.status_code >= 400:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {"code": "B2B_ERROR", "message": "B2B request failed"}
+            raise B2BResponseError(response.status_code, payload)
+        return response.json()
+
+    def get_sku(self, sku_id: str) -> dict[str, Any]:
+        return self._request_public_sku("get", f"/api/v1/public/skus/{sku_id}")
+
+    def batch_skus(self, sku_ids: list[str]) -> list[dict[str, Any]]:
+        return self._request_public_sku(
+            "post",
+            "/api/v1/public/skus/batch",
+            json={"sku_ids": sku_ids},
+        )
+
+    def _request_public_sku(
+        self,
+        method: str,
+        path: str,
+        **kwargs: Any,
+    ) -> Any:
+        try:
+            response = httpx.request(
+                method,
+                f"{self.base_url}{path}",
+                headers={"X-Service-Key": self.service_key},
+                timeout=5.0,
+                **kwargs,
             )
         except httpx.RequestError as exc:
             raise B2BUnavailableError from exc
