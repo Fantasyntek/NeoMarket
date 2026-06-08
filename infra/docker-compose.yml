@@ -20,10 +20,15 @@ services:
     environment:
       B2B_URL: http://b2b:8000
       B2B_SERVICE_KEY: dev-service-key
+      DATABASE_URL: sqlite:////data/neomarket-b2c.db
+      JWT_SECRET: dev-secret
     ports:
       - "8001:8000"
+    volumes:
+      - b2c-data:/data
     depends_on:
       - b2b
 
 volumes:
   b2b-data:
+  b2c-data:

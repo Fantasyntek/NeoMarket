@@ -140,3 +140,11 @@ Adding a new SKU to a `MODERATED` or `BLOCKED` product is treated as a content e
 ## B2B Outgoing Moderation Events
 
 B2B sends product lifecycle events to `POST /api/v1/b2b/events` with `X-Service-Key`. The payload follows the Moderation OpenAPI contract: `event_type` is one of `PRODUCT_CREATED`, `PRODUCT_EDITED`, or `PRODUCT_DELETED`, `occurred_at` is a UTC timestamp, and event data is nested under `payload`. Created and edited events include the current product snapshot in `json_after`, while edited events also include the required `json_before` object. The exact transmitted document is persisted in the Moderation outbox for reliable inspection and retry support.
+
+## US-CART-01 ADR
+
+For identifying the owner of a favorites list I considered accepting `user_id` from query parameters, trusting an `X-User-Id` header, and reading the user identifier from verified JWT claims. I chose the JWT `sub` claim because it prevents clients from selecting another user's records and keeps the IDOR boundary inside the B2C service. Query parameters are ignored, while a direct `X-User-Id` header would only be safe behind a trusted gateway that strips client-supplied values. This approach adds a small amount of JWT validation code but makes ownership consistent across add, delete, and list operations.
+
+## B2C Favorites
+
+Favorites are available to authenticated buyers through `POST`, `DELETE`, and `GET /api/v1/favorites`. B2C persists only `user_id`, `product_id`, and `added_at`; product cards are batch-enriched from the B2B public catalog on every list request, so blocked or deleted products are excluded without deleting the stored favorite. Adding an existing favorite returns `200`, deleting a missing favorite returns `204`, and `user_id` always comes from the signed JWT `sub` claim.
