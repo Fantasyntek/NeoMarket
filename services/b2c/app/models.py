@@ -231,3 +231,29 @@ class OrderItem(Base):
     unit_price: Mapped[int] = mapped_column(Integer, nullable=False)
     line_total: Mapped[int] = mapped_column(Integer, nullable=False)
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class CancellationRetry(Base):
+    __tablename__ = "cancellation_retries"
+    __table_args__ = (
+        UniqueConstraint("order_id", name="uq_cancellation_retries_order"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    order_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("orders.id"),
+        nullable=False,
+        index=True,
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
