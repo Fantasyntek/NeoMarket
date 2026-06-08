@@ -202,6 +202,10 @@ class Order(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="CREATED")
     delivery_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -278,4 +282,30 @@ class ProcessedB2BEvent(Base):
         server_default=func.now(),
         nullable=False,
         index=True,
+    )
+
+
+class FulfillmentRetry(Base):
+    __tablename__ = "fulfillment_retries"
+    __table_args__ = (
+        UniqueConstraint("order_id", name="uq_fulfillment_retries_order"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    order_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("orders.id"),
+        nullable=False,
+        index=True,
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )
