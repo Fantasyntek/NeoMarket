@@ -150,3 +150,56 @@ def test_seller_catalog_does_not_accept_service_key(client: TestClient) -> None:
         "code": "UNAUTHORIZED",
         "message": "Authorization required",
     }
+
+
+def test_public_sku_lookup_returns_out_of_stock_sku(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    product = create_product_fixture(db_session, "Out Of Stock iPhone")
+    sku = create_sku_fixture(db_session, product, active_quantity=0)
+
+    response = client.get(
+        f"/api/v1/public/skus/{sku.id}",
+        headers=SERVICE_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["product"]["id"] == product.id
+    assert response.json()["sku"]["id"] == sku.id
+    assert response.json()["sku"]["active_quantity"] == 0
+    assert "cost_price" not in response.json()["sku"]
+    assert "reserved_quantity" not in response.json()["sku"]
+
+
+def test_public_sku_batch_includes_status_for_blocked_products(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    visible_product = create_product_fixture(db_session, "Visible iPhone")
+    visible_sku = create_sku_fixture(db_session, visible_product, active_quantity=0)
+    blocked_product = create_product_fixture(
+        db_session,
+        "Blocked iPhone",
+        status="BLOCKED",
+    )
+    blocked_sku = create_sku_fixture(db_session, blocked_product, active_quantity=5)
+
+    response = client.post(
+        "/api/v1/public/skus/batch",
+        headers=SERVICE_HEADERS,
+        json={"sku_ids": [visible_sku.id, blocked_sku.id]},
+    )
+
+    assert response.status_code == 200
+    assert [item["sku"]["id"] for item in response.json()] == [
+        visible_sku.id,
+        blocked_sku.id,
+    ]
+    assert response.json()[1]["product"] == {
+        "id": blocked_product.id,
+        "title": "Blocked iPhone",
+        "status": "BLOCKED",
+        "deleted": False,
+    }
+    assert "seller_id" not in response.json()[1]["product"]

@@ -156,3 +156,11 @@ For storing subscription event preferences I considered PostgreSQL `ArrayField`,
 ## B2C Product Subscriptions
 
 Authenticated buyers can create and remove notification subscriptions through `POST` and `DELETE /api/v1/favorites/{product_id}/subscribe`. Subscription creation validates `notify_on`, verifies that the product is currently visible through B2B, and returns `409` when the same user is already subscribed to the product. Unsubscribe is idempotent and returns `204`, while notification delivery remains outside the current scope. Ownership always comes from the signed JWT `sub` claim.
+
+## US-CART-03 ADR
+
+For guest cart identity I considered an `X-Session-Id` header, an HTTP-only cookie, and a temporary signed JWT. I chose an opaque UUID in `X-Session-Id` because it works consistently for browsers and mobile clients without requiring cookie support, while authenticated ownership still comes only from the verified JWT `sub` claim. A plain session identifier can be copied if exposed, so all item queries are scoped by identity and foreign items return `404`; a temporary JWT would reduce tampering but adds token lifecycle complexity before guest authentication exists. When both identities are present, the guest cart is merged into the JWT user's cart using `MAX(quantity)`.
+
+## B2C Cart
+
+The cart stores only identity, product/SKU references, and quantity; current prices, stock, and `unavailable_reason` are calculated from B2B on every response. Guests use `X-Session-Id`, authenticated buyers use JWT `sub`, and a request carrying both automatically merges the guest cart into the user cart. Adding an existing SKU increments quantity without reserving inventory, unavailable lines remain visible with zero `line_total`, and only available lines are included in `checkout_payload`. B2B exposes service-key protected SKU lookup and batch endpoints so out-of-stock variants can be enriched without exposing seller-only fields.
