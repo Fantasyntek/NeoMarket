@@ -15,6 +15,10 @@ from app.errors import api_error
 
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret")
+INCOMING_B2B_SERVICE_KEY = os.getenv(
+    "B2B_TO_B2C_SERVICE_KEY",
+    os.getenv("B2B_SERVICE_KEY", "dev-service-key"),
+)
 
 
 @dataclass(frozen=True)
@@ -77,3 +81,7 @@ def require_user(authorization: str | None = Header(default=None)) -> CurrentUse
     except ValueError:
         raise api_error(401, "UNAUTHORIZED", "sub claim must be a valid UUID")
     return CurrentUser(user_id=normalized_user_id)
+
+
+def is_valid_b2b_service_key(value: str | None) -> bool:
+    return bool(value) and hmac.compare_digest(value, INCOMING_B2B_SERVICE_KEY)
