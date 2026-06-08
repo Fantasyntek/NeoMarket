@@ -112,3 +112,7 @@ The seller cabinet and service-to-service catalog use separate routes. Seller re
 ## B2B Moderation Event Contract
 
 Moderation decisions are accepted at `POST /api/v1/moderation/events` with `X-Service-Key`. The request follows `ModerationEventRequest`: `event_type` selects `MODERATED` or `BLOCKED`, `occurred_at` is a required timezone-aware date-time, and blocking data is supplied through the flat `blocking_reason_id`, `moderator_comment`, and `field_reports` fields. Successful processing and idempotent duplicates return `204 No Content`.
+
+## B2B Inventory Reserve Contract
+
+Inventory reservation endpoints follow the B2B OpenAPI paths `POST /api/v1/inventory/reserve` and `POST /api/v1/inventory/unreserve`. Reserve requests require both `idempotency_key` and `order_id`, and return `{order_id, status, reserved_at}`; unreserve returns `{order_id, status, processed_at}`. The serialized response is stored with the idempotency operation so retries return the original timestamp without applying inventory changes again.
