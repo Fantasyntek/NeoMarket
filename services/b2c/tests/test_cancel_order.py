@@ -14,6 +14,8 @@ USER_ID = "f3d4e5f6-a7b8-4012-8def-123456789012"
 OTHER_USER_ID = "a3d4e5f6-a7b8-4012-8def-123456789099"
 SKU_ID = "660e8400-e29b-41d4-a716-446655440001"
 PRODUCT_ID = "770e8400-e29b-41d4-a716-446655440002"
+ADDRESS_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+PAYMENT_METHOD_ID = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
 
 
 def auth_headers(user_id: str = USER_ID) -> dict[str, str]:
@@ -34,7 +36,8 @@ def create_order(
         idempotency_key=f"22222222-3333-4444-8555-{sequence:012d}",
         request_hash=f"{sequence:064x}",
         status=status,
-        delivery_address="Ekaterinburg, Mira 19",
+        address_id=ADDRESS_ID,
+        payment_method_id=PAYMENT_METHOD_ID,
         total_amount=24998000,
     )
     db_session.add(order)

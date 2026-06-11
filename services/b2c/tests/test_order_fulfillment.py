@@ -24,7 +24,8 @@ def create_order(db_session: Session, status: str = "DELIVERING") -> Order:
         idempotency_key=f"55555555-6666-4777-8888-{sequence:012d}",
         request_hash=f"{sequence:064x}",
         status=status,
-        delivery_address="Ekaterinburg, Mira 19",
+        address_id="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        payment_method_id="bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
         total_amount=24998000,
     )
     db_session.add(order)

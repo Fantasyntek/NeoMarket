@@ -49,22 +49,8 @@ def _normalize_uuid(value: Any, field_name: str) -> str:
         raise api_error(400, "INVALID_REQUEST", f"{field_name} must be a valid UUID")
 
 
-def _idempotency_key(payload: dict[str, Any], header_value: str | None) -> str:
-    body_value = payload.get("idempotency_key")
-    if body_value is not None and header_value is not None:
-        normalized_body = _normalize_uuid(body_value, "idempotency_key")
-        normalized_header = _normalize_uuid(header_value, "Idempotency-Key")
-        if normalized_body != normalized_header:
-            raise api_error(
-                400,
-                "INVALID_REQUEST",
-                "Body and header idempotency keys must match",
-            )
-        return normalized_body
-    return _normalize_uuid(
-        body_value if body_value is not None else header_value,
-        "idempotency_key",
-    )
+def _idempotency_key(header_value: str | None) -> str:
+    return _normalize_uuid(header_value, "Idempotency-Key")
 
 
 def _checkout_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -101,12 +87,17 @@ def _checkout_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _request_hash(payload: dict[str, Any], items: list[dict[str, Any]]) -> str:
+def _request_hash(
+    payload: dict[str, Any],
+    items: list[dict[str, Any]],
+    *,
+    address_id: str,
+    payment_method_id: str,
+) -> str:
     stable_payload = {
         "items": items,
-        "delivery_address": payload.get("delivery_address"),
-        "address_id": payload.get("address_id"),
-        "payment_method_id": payload.get("payment_method_id"),
+        "address_id": address_id,
+        "payment_method_id": payment_method_id,
         "comment": payload.get("comment"),
     }
     encoded = json.dumps(
@@ -166,6 +157,8 @@ def _serialize_order(db: Session, order: Order) -> dict[str, Any]:
     ]
     created_at = order.created_at.isoformat()
     updated_at = order.updated_at.isoformat()
+    address_id = order.address_id or order.id
+    payment_method_id = order.payment_method_id or order.id
     return {
         "id": order.id,
         "buyer_id": order.user_id,
@@ -175,7 +168,24 @@ def _serialize_order(db: Session, order: Order) -> dict[str, Any]:
         "subtotal": order.total_amount,
         "delivery_cost": 0,
         "total": order.total_amount,
-        "delivery_address": order.delivery_address,
+        "address": {
+            "id": address_id,
+            "country": "mock",
+            "city": "mock",
+            "street": "mock",
+            "building": "mock",
+            "is_default": False,
+            "created_at": created_at,
+        },
+        "payment_method": {
+            "id": payment_method_id,
+            "type": "CARD",
+            "card_last4": "0000",
+            "card_brand": "MIR",
+            "is_default": False,
+            "created_at": created_at,
+        },
+        "comment": order.comment,
         "created_at": created_at,
         "updated_at": updated_at,
         "paid_at": updated_at if order.status == "PAID" else None,
@@ -347,7 +357,9 @@ def _claim_idempotency_key(
     current_user: CurrentUser,
     idempotency_key: str,
     request_hash: str,
-    delivery_address: str | None,
+    address_id: str,
+    payment_method_id: str,
+    comment: str | None,
 ) -> tuple[Order, JSONResponse | None]:
     existing = (
         db.query(Order)
@@ -367,7 +379,9 @@ def _claim_idempotency_key(
         idempotency_key=idempotency_key,
         request_hash=request_hash,
         status="CREATED",
-        delivery_address=delivery_address,
+        address_id=address_id,
+        payment_method_id=payment_method_id,
+        comment=comment,
         total_amount=0,
     )
     db.add(order)
@@ -565,23 +579,37 @@ def create_order(
         alias="Idempotency-Key",
     ),
 ) -> JSONResponse:
-    key = _idempotency_key(payload, idempotency_header)
+    key = _idempotency_key(idempotency_header)
     items = _checkout_items(payload)
-    request_hash = _request_hash(payload, items)
-    delivery_address = payload.get("delivery_address")
-    if delivery_address is not None and not isinstance(delivery_address, str):
+    address_id = _normalize_uuid(payload.get("address_id"), "address_id")
+    payment_method_id = _normalize_uuid(
+        payload.get("payment_method_id"),
+        "payment_method_id",
+    )
+    comment = payload.get("comment")
+    if comment is not None and (
+        not isinstance(comment, str) or len(comment) > 1000
+    ):
         raise api_error(
             400,
             "INVALID_REQUEST",
-            "delivery_address must be a string",
+            "comment must be a string with at most 1000 characters",
         )
+    request_hash = _request_hash(
+        payload,
+        items,
+        address_id=address_id,
+        payment_method_id=payment_method_id,
+    )
 
     order, existing_response = _claim_idempotency_key(
         db,
         current_user=current_user,
         idempotency_key=key,
         request_hash=request_hash,
-        delivery_address=delivery_address,
+        address_id=address_id,
+        payment_method_id=payment_method_id,
+        comment=comment,
     )
     if existing_response is not None:
         return existing_response

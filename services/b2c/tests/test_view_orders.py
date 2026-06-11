@@ -12,6 +12,8 @@ USER_ID = "f3d4e5f6-a7b8-4012-8def-123456789012"
 OTHER_USER_ID = "a3d4e5f6-a7b8-4012-8def-123456789099"
 SKU_ID = "660e8400-e29b-41d4-a716-446655440001"
 PRODUCT_ID = "770e8400-e29b-41d4-a716-446655440002"
+ADDRESS_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+PAYMENT_METHOD_ID = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
 
 
 def headers_for(user_id: str) -> dict[str, str]:
@@ -33,7 +35,8 @@ def create_order(
         idempotency_key=f"11111111-2222-4333-8444-{create_order.counter:012d}",
         request_hash=f"{create_order.counter:064x}",
         status=status,
-        delivery_address="Ekaterinburg, Mira 19",
+        address_id=ADDRESS_ID,
+        payment_method_id=PAYMENT_METHOD_ID,
         total_amount=unit_price * quantity,
         created_at=created_at or datetime.now(timezone.utc),
         updated_at=created_at or datetime.now(timezone.utc),
@@ -144,6 +147,8 @@ def test_order_detail_shows_fixed_prices(
     assert response.json()["items"][0]["unit_price"] == 12499000
     assert response.json()["items"][0]["line_total"] == 24998000
     assert response.json()["total_amount"] == 24998000
+    assert response.json()["address"]["id"] == ADDRESS_ID
+    assert response.json()["payment_method"]["id"] == PAYMENT_METHOD_ID
 
 
 def test_other_user_order_returns_404_not_403(

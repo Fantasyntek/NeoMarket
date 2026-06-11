@@ -199,7 +199,7 @@ For checkout idempotency I considered a unique index on `orders.idempotency_key`
 
 ## B2C Checkout
 
-Authenticated buyers create orders through `POST /api/v1/orders` with explicit SKU quantities and an idempotency key. B2C validates current product visibility and stock through the B2B public SKU batch endpoint, then performs one all-or-nothing call to `POST /api/v1/inventory/reserve`. Successful orders store immutable `unit_price`, `product_title`, and `sku_name` snapshots in `OrderItem` and move directly to `PAID`; failed reserves leave no order rows. The canonical body key and the OpenAPI `Idempotency-Key` header are both accepted, and retries return the existing order without reserving inventory again.
+Authenticated buyers create orders through `POST /api/v1/orders` with required `address_id`, `payment_method_id`, and the OpenAPI `Idempotency-Key` header. B2C validates current product visibility and stock through the B2B public SKU batch endpoint, then performs one all-or-nothing call to `POST /api/v1/inventory/reserve`. Successful orders store immutable `unit_price`, `product_title`, and `sku_name` snapshots in `OrderItem`, retain the checkout address and payment UUIDs, and move directly to `PAID`; failed reserves leave no order rows. Order responses expose contract-shaped address and payment method objects backed by MVP mock details, while retries return the existing order without reserving inventory again.
 
 ## US-ORD-02 ADR
 
