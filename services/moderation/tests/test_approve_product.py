@@ -93,8 +93,8 @@ def test_approve_transitions_to_moderated_and_emits_event(
     db_session.refresh(card)
     outbox = db_session.query(B2BOutboxEvent).one()
     assert response.status_code == 200
-    assert response.json()["status"] == "MODERATED"
-    assert card.status == "MODERATED"
+    assert response.json()["status"] == "APPROVED"
+    assert card.status == "APPROVED"
     assert card.decision_at is not None
     assert len(fake.events) == 1
     assert fake.events[0]["event_type"] == "MODERATED"

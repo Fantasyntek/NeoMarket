@@ -27,7 +27,7 @@ class ProductModeration(Base):
     __tablename__ = "product_moderation"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('PENDING', 'IN_REVIEW', 'MODERATED', 'BLOCKED', "
+            "status IN ('PENDING', 'IN_REVIEW', 'APPROVED', 'BLOCKED', "
             "'HARD_BLOCKED', 'ARCHIVED')",
             name="ck_product_moderation_status",
         ),

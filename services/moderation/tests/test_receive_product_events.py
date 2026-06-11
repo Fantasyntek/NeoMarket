@@ -153,11 +153,11 @@ def test_edited_returns_to_review(
     assert card.json_after["title"] == "Fixed title"
 
 
-def test_edited_moderated_returns_to_review_with_stock_priority(
+def test_edited_approved_returns_to_review_with_stock_priority(
     client: TestClient,
     db_session: Session,
 ) -> None:
-    card = create_card(db_session, status="MODERATED")
+    card = create_card(db_session, status="APPROVED")
 
     response = client.post(
         "/api/v1/b2b/events",
