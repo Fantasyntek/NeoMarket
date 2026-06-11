@@ -99,21 +99,20 @@ def test_orders_list_returns_own_orders_paginated(
     )
 
     assert first_page.status_code == 200
-    assert first_page.json() == {
-        "items": [
-            {
-                "id": newer.id,
-                "status": "PAID",
-                "total_amount": 25998000,
-                "items_count": 1,
-                "created_at": newer.created_at.isoformat(),
-                "updated_at": newer.updated_at.isoformat(),
-            }
-        ],
-        "total_count": 2,
-        "limit": 1,
-        "offset": 0,
-    }
+    first_page_payload = first_page.json()
+    assert first_page_payload["total_count"] == 2
+    assert first_page_payload["limit"] == 1
+    assert first_page_payload["offset"] == 0
+    assert len(first_page_payload["items"]) == 1
+    listed_order = first_page_payload["items"][0]
+    assert listed_order["id"] == newer.id
+    assert listed_order["buyer_id"] == USER_ID
+    assert listed_order["status"] == "PAID"
+    assert listed_order["subtotal"] == 25998000
+    assert listed_order["total"] == 25998000
+    assert listed_order["address"]["id"] == ADDRESS_ID
+    assert listed_order["items"][0]["unit_price"] == 12999000
+    assert listed_order["items"][0]["quantity"] == 2
     assert second_page.status_code == 200
     assert second_page.json()["items"][0]["id"] == older.id
     assert second_page.json()["total_count"] == 2
@@ -147,6 +146,9 @@ def test_order_detail_shows_fixed_prices(
     assert response.json()["items"][0]["unit_price"] == 12499000
     assert response.json()["items"][0]["line_total"] == 24998000
     assert response.json()["total_amount"] == 24998000
+    assert response.json()["buyer_id"] == USER_ID
+    assert response.json()["subtotal"] == 24998000
+    assert response.json()["total"] == 24998000
     assert response.json()["address"]["id"] == ADDRESS_ID
     assert response.json()["payment_method"]["id"] == PAYMENT_METHOD_ID
 
