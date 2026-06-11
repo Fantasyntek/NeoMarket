@@ -84,7 +84,8 @@ def create_order(
         idempotency_key="99999999-8888-4777-8666-555555555555",
         request_hash="a" * 64,
         status=status,
-        delivery_address="Ekaterinburg, Mira 19",
+        address_id="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        payment_method_id="bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
         total_amount=24998000,
     )
     db_session.add(order)

@@ -200,6 +200,9 @@ class Order(Base):
     )
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="CREATED")
+    address_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    payment_method_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     delivery_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     delivered_at: Mapped[datetime | None] = mapped_column(
