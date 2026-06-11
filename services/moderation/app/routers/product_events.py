@@ -239,6 +239,12 @@ def _deleted(db: Session, event: ProductEvent) -> ProductModeration | None:
     )
     if card is None:
         return None
+    if card.status == "HARD_BLOCKED":
+        db.query(ModerationFieldReport).filter(
+            ModerationFieldReport.product_moderation_id == card.id
+        ).delete(synchronize_session=False)
+        db.delete(card)
+        return None
     card.status = "ARCHIVED"
     card.archived = True
     card.archived_at = event.occurred_at

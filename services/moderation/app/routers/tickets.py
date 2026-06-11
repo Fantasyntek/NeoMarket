@@ -187,6 +187,12 @@ def _owned_in_review_card(
     card = db.get(ProductModeration, _ticket_id(ticket_id))
     if card is None or card.archived:
         raise api_error(404, "TICKET_NOT_FOUND", "Ticket not found")
+    if card.status == "HARD_BLOCKED":
+        raise api_error(
+            403,
+            "HARD_BLOCKED_TERMINAL",
+            "Hard-blocked cards cannot be modified",
+        )
     if card.moderator_id != moderator.moderator_id:
         raise api_error(
             403,
@@ -264,7 +270,7 @@ def _approve(
     return _serialize(card)
 
 
-def _soft_block(
+def _block(
     ticket_id: str,
     payload: dict[str, Any] | None,
     moderator: CurrentModerator,
@@ -280,13 +286,6 @@ def _soft_block(
             "UNKNOWN_BLOCKING_REASON",
             "Blocking reason does not exist or is inactive",
         )
-    if reason.hard_block:
-        raise api_error(
-            400,
-            "HARD_BLOCK_REASON_NOT_ALLOWED",
-            "Hard-block reason cannot be used for a soft block",
-        )
-
     reports = _field_reports(payload)
     moderator_comment = _comment(
         {
@@ -297,7 +296,7 @@ def _soft_block(
         }
     )
     decision_at = utc_now()
-    card.status = "BLOCKED"
+    card.status = "HARD_BLOCKED" if reason.hard_block else "BLOCKED"
     card.blocking_reason_id = reason.id
     card.moderator_comment = moderator_comment
     card.decision_at = decision_at
@@ -332,6 +331,7 @@ def _soft_block(
         moderator_comment,
         event_reports,
         decision_at,
+        hard_block=reason.hard_block,
     )
     outbox_event = record_b2b_outbox_event(db, event_payload)
     db.commit()
@@ -340,7 +340,7 @@ def _soft_block(
     return _serialize(card)
 
 
-def _soft_block_product(
+def _block_product(
     product_id: str,
     payload: dict[str, Any] | None,
     moderator: CurrentModerator,
@@ -348,7 +348,7 @@ def _soft_block_product(
     dispatcher: B2BDispatcher,
 ) -> dict[str, Any]:
     card = _owned_in_review_product(product_id, moderator, db)
-    return _soft_block(card.id, payload, moderator, db, dispatcher)
+    return _block(card.id, payload, moderator, db, dispatcher)
 
 
 @router.post("/tickets/{ticket_id}/approve")
@@ -381,7 +381,7 @@ def block_ticket_openapi(
     db: Session = Depends(get_db),
     dispatcher: B2BDispatcher = Depends(get_b2b_dispatcher),
 ) -> dict[str, Any]:
-    return _soft_block(ticket_id, payload, moderator, db, dispatcher)
+    return _block(ticket_id, payload, moderator, db, dispatcher)
 
 
 @router.post("/products/{product_id}/decline")
@@ -392,4 +392,4 @@ def block_ticket_canonical(
     db: Session = Depends(get_db),
     dispatcher: B2BDispatcher = Depends(get_b2b_dispatcher),
 ) -> dict[str, Any]:
-    return _soft_block_product(product_id, payload, moderator, db, dispatcher)
+    return _block_product(product_id, payload, moderator, db, dispatcher)

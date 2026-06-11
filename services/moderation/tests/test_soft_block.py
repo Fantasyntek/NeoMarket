@@ -267,7 +267,7 @@ def test_soft_block_invalid_field_name_returns_400(
     assert fake.events == []
 
 
-def test_soft_block_hard_only_reason_returns_400(
+def test_hard_only_reason_routes_to_hard_block(
     client: TestClient,
     db_session: Session,
 ) -> None:
@@ -281,9 +281,12 @@ def test_soft_block_hard_only_reason_returns_400(
         headers=headers(),
     )
 
-    assert response.status_code == 400
-    assert response.json()["code"] == "HARD_BLOCK_REASON_NOT_ALLOWED"
-    assert fake.events == []
+    db_session.refresh(card)
+    assert response.status_code == 200
+    assert response.json()["status"] == "HARD_BLOCKED"
+    assert card.status == "HARD_BLOCKED"
+    assert fake.events[0]["event_type"] == "BLOCKED"
+    assert fake.events[0]["hard_block"] is True
 
 
 def test_edited_after_soft_block_clears_field_reports(
