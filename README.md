@@ -163,11 +163,11 @@ Favorites are available to authenticated buyers through idempotent `PUT` and `DE
 
 ## US-CART-02 ADR
 
-For storing subscription event preferences I considered PostgreSQL `ArrayField`, a normalized child table with one row per event type, and a JSON array on the subscription record. I chose a JSON field because it works with the current SQLite-backed B2C service and adding a new notification type does not require a schema migration. A child table would make filtering by event type more explicit at scale, while `ArrayField` provides convenient PostgreSQL queries but would tie the MVP to one database. Validation at the API boundary keeps the stored JSON limited to the supported `IN_STOCK` and `PRICE_DOWN` values.
+For storing subscription event preferences I considered PostgreSQL `ArrayField`, a normalized child table with one row per event type, and a JSON array on the subscription record. I chose a JSON field because it works with the current SQLite-backed B2C service and adding a new notification type does not require a schema migration. A child table would make filtering by event type more explicit at scale, while `ArrayField` provides convenient PostgreSQL queries but would tie the MVP to one database. Validation at the API boundary keeps the stored JSON limited to the OpenAPI `BACK_IN_STOCK` and `PRICE_DROP` values.
 
 ## B2C Product Subscriptions
 
-Authenticated buyers can create and remove notification subscriptions through `POST` and `DELETE /api/v1/favorites/{product_id}/subscribe`. Subscription creation validates `notify_on`, verifies that the product is currently visible through B2B, and returns `409` when the same user is already subscribed to the product. Unsubscribe is idempotent and returns `204`, while notification delivery remains outside the current scope. Ownership always comes from the signed JWT `sub` claim.
+Authenticated buyers can create and remove notification subscriptions through `POST` and `DELETE /api/v1/favorites/{product_id}/subscribe`. Subscription creation accepts the OpenAPI `events` field and canonical `notify_on` alias, validates `BACK_IN_STOCK` and `PRICE_DROP`, verifies that the product is currently visible through B2B, and returns `204` without a body. Duplicate subscriptions return `409`; unsubscribe is idempotent and returns `204`. Ownership always comes from the signed JWT `sub` claim.
 
 ## US-CART-03 ADR
 

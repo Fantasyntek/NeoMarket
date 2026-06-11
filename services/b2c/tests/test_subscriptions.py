@@ -51,17 +51,15 @@ def test_subscribe_returns_201_with_notify_on(
 
     response = client.post(
         f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-        json={"notify_on": ["IN_STOCK", "PRICE_DOWN"]},
+        json={"notify_on": ["BACK_IN_STOCK", "PRICE_DROP"]},
         headers=auth_headers,
     )
 
-    assert response.status_code == 201
-    assert response.json()["product_id"] == PRODUCT_ID
-    assert response.json()["notify_on"] == ["IN_STOCK", "PRICE_DOWN"]
-    assert response.json()["created_at"]
+    assert response.status_code == 204
+    assert response.content == b""
     subscription = db_session.query(ProductSubscription).one()
     assert subscription.user_id == USER_ID
-    assert subscription.notify_on == ["IN_STOCK", "PRICE_DOWN"]
+    assert subscription.notify_on == ["BACK_IN_STOCK", "PRICE_DROP"]
     assert fake_b2b.get_calls == [PRODUCT_ID]
 
 
@@ -74,16 +72,16 @@ def test_duplicate_subscription_returns_409(
 
     first_response = client.post(
         f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-        json={"notify_on": ["IN_STOCK"]},
+        json={"notify_on": ["BACK_IN_STOCK"]},
         headers=auth_headers,
     )
     second_response = client.post(
         f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-        json={"notify_on": ["PRICE_DOWN"]},
+        json={"notify_on": ["PRICE_DROP"]},
         headers=auth_headers,
     )
 
-    assert first_response.status_code == 201
+    assert first_response.status_code == 204
     assert second_response.status_code == 409
     assert second_response.json()["code"] == "SUBSCRIPTION_ALREADY_EXISTS"
     assert db_session.query(ProductSubscription).count() == 1
@@ -121,7 +119,7 @@ def test_subscribe_to_unknown_product_returns_404(
 
     response = client.post(
         f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-        json={"notify_on": ["IN_STOCK"]},
+        json={"notify_on": ["BACK_IN_STOCK"]},
         headers=auth_headers,
     )
 
@@ -138,7 +136,7 @@ def test_unsubscribe_returns_204_and_is_idempotent(
     override_b2b(client, FakeB2BClient())
     client.post(
         f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
-        json={"notify_on": ["IN_STOCK"]},
+        json={"notify_on": ["BACK_IN_STOCK"]},
         headers=auth_headers,
     )
 
@@ -164,18 +162,19 @@ def test_user_id_from_query_is_ignored_for_subscriptions(
 
     response = client.post(
         f"/api/v1/favorites/{PRODUCT_ID}/subscribe?user_id={OTHER_USER_ID}",
-        json={"notify_on": ["PRICE_DOWN"]},
+        json={"notify_on": ["PRICE_DROP"]},
         headers=headers_for(USER_ID),
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 204
     subscription = db_session.query(ProductSubscription).one()
     assert subscription.user_id == USER_ID
     assert subscription.user_id != OTHER_USER_ID
 
 
-def test_legacy_openapi_event_names_are_normalized(
+def test_openapi_events_field_uses_canonical_values(
     client: TestClient,
+    db_session: Session,
     auth_headers: dict[str, str],
 ) -> None:
     override_b2b(client, FakeB2BClient())
@@ -186,5 +185,23 @@ def test_legacy_openapi_event_names_are_normalized(
         headers=auth_headers,
     )
 
-    assert response.status_code == 201
-    assert response.json()["notify_on"] == ["IN_STOCK", "PRICE_DOWN"]
+    assert response.status_code == 204
+    assert response.content == b""
+    subscription = db_session.query(ProductSubscription).one()
+    assert subscription.notify_on == ["BACK_IN_STOCK", "PRICE_DROP"]
+
+
+def test_old_event_aliases_return_400(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    override_b2b(client, FakeB2BClient())
+
+    response = client.post(
+        f"/api/v1/favorites/{PRODUCT_ID}/subscribe",
+        json={"notify_on": ["IN_STOCK", "PRICE_DOWN"]},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "INVALID_NOTIFY_ON"
