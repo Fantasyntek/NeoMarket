@@ -7,7 +7,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -139,7 +138,11 @@ def _order_items(db: Session, order_id: str) -> list[OrderItem]:
     )
 
 
-def _serialize_order(db: Session, order: Order) -> dict[str, Any]:
+def _serialize_order(
+    db: Session,
+    order: Order,
+    order_items: list[OrderItem] | None = None,
+) -> dict[str, Any]:
     items = [
         {
             "id": item.id,
@@ -153,7 +156,11 @@ def _serialize_order(db: Session, order: Order) -> dict[str, Any]:
             "line_total": item.line_total,
             "image_url": item.image_url,
         }
-        for item in _order_items(db, order.id)
+        for item in (
+            order_items
+            if order_items is not None
+            else _order_items(db, order.id)
+        )
     ]
     created_at = order.created_at.isoformat()
     updated_at = order.updated_at.isoformat()
@@ -237,36 +244,37 @@ def list_orders(
             f"status must be one of: {', '.join(sorted(ORDER_STATUSES))}",
         )
 
-    items_count = (
-        db.query(func.count(OrderItem.id))
-        .filter(OrderItem.order_id == Order.id)
-        .correlate(Order)
-        .scalar_subquery()
-    )
-    query = db.query(Order, items_count.label("items_count")).filter(
+    query = db.query(Order).filter(
         Order.user_id == current_user.user_id
     )
     if status is not None:
         query = query.filter(Order.status == status)
 
     total_count = query.count()
-    rows = (
+    orders = (
         query.order_by(Order.created_at.desc(), Order.id.desc())
         .offset(offset)
         .limit(limit)
         .all()
     )
+    order_ids = [order.id for order in orders]
+    items_by_order_id: dict[str, list[OrderItem]] = {
+        order_id: [] for order_id in order_ids
+    }
+    if order_ids:
+        page_items = (
+            db.query(OrderItem)
+            .filter(OrderItem.order_id.in_(order_ids))
+            .order_by(OrderItem.order_id, OrderItem.id)
+            .all()
+        )
+        for item in page_items:
+            items_by_order_id[item.order_id].append(item)
+
     return {
         "items": [
-            {
-                "id": order.id,
-                "status": order.status,
-                "total_amount": order.total_amount,
-                "items_count": int(count),
-                "created_at": order.created_at.isoformat(),
-                "updated_at": order.updated_at.isoformat(),
-            }
-            for order, count in rows
+            _serialize_order(db, order, items_by_order_id[order.id])
+            for order in orders
         ],
         "total_count": total_count,
         "limit": limit,

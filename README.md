@@ -207,7 +207,7 @@ For order IDOR protection I considered loading by order ID and checking ownershi
 
 ## B2C Order History
 
-Authenticated buyers can list their own orders through paginated `GET /api/v1/orders` with an optional status filter. List items contain summary metadata and the number of order lines, while `GET /api/v1/orders/{order_id}` returns immutable `OrderItem` snapshots without calling B2B. Every query is scoped by the JWT `sub` claim; `user_id` query parameters cannot widen access, and foreign orders are indistinguishable from missing orders.
+Authenticated buyers can list their own orders through paginated `GET /api/v1/orders` with an optional status filter. Every list item and `GET /api/v1/orders/{order_id}` use the full `OrderResponse`, including immutable `OrderItem` snapshots, totals, and the checkout address without calling B2B. Page orders and their items are loaded in two queries to avoid N+1 behavior. Every query is scoped by the JWT `sub` claim; `user_id` query parameters cannot widen access, and foreign orders are indistinguishable from missing orders.
 
 ## US-ORD-03 ADR
 
