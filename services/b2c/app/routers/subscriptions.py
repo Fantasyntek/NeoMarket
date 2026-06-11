@@ -4,7 +4,6 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response
-from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -21,11 +20,7 @@ from app.models import ProductSubscription
 
 
 router = APIRouter(prefix="/api/v1/favorites", tags=["Favorites"])
-ALLOWED_NOTIFICATION_EVENTS = {"IN_STOCK", "PRICE_DOWN"}
-LEGACY_EVENT_ALIASES = {
-    "BACK_IN_STOCK": "IN_STOCK",
-    "PRICE_DROP": "PRICE_DOWN",
-}
+ALLOWED_NOTIFICATION_EVENTS = {"BACK_IN_STOCK", "PRICE_DROP"}
 
 
 def _normalize_product_id(product_id: str) -> str:
@@ -43,13 +38,9 @@ def _validate_notify_on(payload: dict[str, Any]) -> list[str]:
             "INVALID_NOTIFY_ON",
             "notify_on must be a non-empty array",
         )
-    normalized_events = [
-        LEGACY_EVENT_ALIASES.get(event, event) if isinstance(event, str) else event
-        for event in notify_on
-    ]
     if any(
         not isinstance(event, str) or event not in ALLOWED_NOTIFICATION_EVENTS
-        for event in normalized_events
+        for event in notify_on
     ):
         allowed = ", ".join(sorted(ALLOWED_NOTIFICATION_EVENTS))
         raise api_error(
@@ -57,7 +48,7 @@ def _validate_notify_on(payload: dict[str, Any]) -> list[str]:
             "INVALID_NOTIFY_ON",
             f"notify_on values must be one of: {allowed}",
         )
-    return list(dict.fromkeys(normalized_events))
+    return list(dict.fromkeys(notify_on))
 
 
 def _require_visible_product(b2b_client: B2BClient, product_id: str) -> None:
@@ -75,23 +66,14 @@ def _require_visible_product(b2b_client: B2BClient, product_id: str) -> None:
         )
 
 
-def _subscription_response(subscription: ProductSubscription) -> dict[str, Any]:
-    return {
-        "id": subscription.id,
-        "product_id": subscription.product_id,
-        "notify_on": subscription.notify_on,
-        "created_at": subscription.created_at.isoformat(),
-    }
-
-
-@router.post("/{product_id}/subscribe")
+@router.post("/{product_id}/subscribe", status_code=204)
 def subscribe_to_product(
     product_id: str,
     payload: dict[str, Any],
     current_user: CurrentUser = Depends(require_user),
     db: Session = Depends(get_db),
     b2b_client: B2BClient = Depends(get_b2b_client),
-) -> JSONResponse:
+) -> Response:
     normalized_product_id = _normalize_product_id(product_id)
     notify_on = _validate_notify_on(payload)
     existing = (
@@ -125,11 +107,7 @@ def subscribe_to_product(
             "SUBSCRIPTION_ALREADY_EXISTS",
             "Subscription already exists",
         )
-    db.refresh(subscription)
-    return JSONResponse(
-        status_code=201,
-        content=_subscription_response(subscription),
-    )
+    return Response(status_code=204)
 
 
 @router.delete("/{product_id}/subscribe", status_code=204)
