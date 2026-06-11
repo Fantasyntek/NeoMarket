@@ -272,3 +272,11 @@ For hard-block irreversibility I considered checking a terminal enum status in e
 ## Moderation Hard Block
 
 The same block/decline endpoints route reasons with `hard_block=true` to `HARD_BLOCKED` and send `event_type=BLOCKED` with `hard_block=true` to B2B through the outbox. Approve and repeat block attempts return `403 HARD_BLOCKED_TERMINAL`; seller `PRODUCT_EDITED` events are recorded idempotently but cannot change the card or snapshot. A later `PRODUCT_DELETED` event removes the Moderation record while the B2B product remains terminally blocked.
+
+## US-MOD-06 ADR
+
+For the blocking-reason dictionary I considered a code enum with migrations, a database table managed through an admin API, and an i18n catalog. I chose the database table because administrators can add or deactivate reasons without deploying code, while moderation cards keep stable UUID references for historical analysis. Physical deletion is never exposed, so referenced reasons remain available even after deactivation. An i18n catalog can later use the stable code as a translation key without changing stored moderation decisions.
+
+## Moderation Blocking Reasons
+
+Moderators read active reasons from canonical `GET /api/v1/product-blocking-reasons`, with optional `hard_block` filtering and the exact `{id, title, hard_block}` payload. The OpenAPI-compatible `GET /api/v1/blocking-reasons` exposes the full dictionary representation. Because this service uses FastAPI and SQLAlchemy rather than Django, administrative CRUD is provided through role-protected POST/PATCH/DELETE endpoints; DELETE performs only `is_active=false`, and moderation cards reference reasons through an `ON DELETE RESTRICT` foreign key.

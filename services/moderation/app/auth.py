@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import Header
+from fastapi import Depends, Header
 
 from app.errors import api_error
 
@@ -23,6 +23,7 @@ JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret")
 @dataclass(frozen=True)
 class CurrentModerator:
     moderator_id: str
+    role: str | None = None
 
 
 def _b64url_decode(value: str) -> bytes:
@@ -77,7 +78,19 @@ def require_moderator(
     moderator_id = payload.get("moderator_id", payload.get("sub"))
     if not isinstance(moderator_id, str) or not moderator_id:
         raise api_error(401, "UNAUTHORIZED", "moderator_id claim is required")
-    return CurrentModerator(moderator_id=moderator_id)
+    role = payload.get("role")
+    return CurrentModerator(
+        moderator_id=moderator_id,
+        role=role if isinstance(role, str) else None,
+    )
+
+
+def require_admin(
+    moderator: CurrentModerator = Depends(require_moderator),
+) -> CurrentModerator:
+    if moderator.role != "ADMIN":
+        raise api_error(403, "FORBIDDEN", "Admin role required")
+    return moderator
 
 
 def is_valid_b2b_service_key(value: str | None) -> bool:

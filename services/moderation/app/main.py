@@ -6,6 +6,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.database import init_db
+from app.routers.blocking_reasons import router as blocking_reasons_router
 from app.routers.product_events import router as product_events_router
 from app.routers.queue import router as queue_router
 from app.routers.tickets import router as tickets_router
@@ -49,6 +50,7 @@ def create_app(init_database: bool = True) -> FastAPI:
     app.include_router(product_events_router)
     app.include_router(queue_router)
     app.include_router(tickets_router)
+    app.include_router(blocking_reasons_router)
     return app
 
 

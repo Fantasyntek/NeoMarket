@@ -71,7 +71,11 @@ class ProductModeration(Base):
         nullable=True,
         index=True,
     )
-    blocking_reason_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    blocking_reason_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("blocking_reasons.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     moderator_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     decision_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
