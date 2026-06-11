@@ -73,6 +73,8 @@ def build_blocked_event(
     moderator_comment: str | None,
     field_reports: list[dict[str, str | None]],
     occurred_at: datetime,
+    *,
+    hard_block: bool,
 ) -> dict[str, Any]:
     return {
         "idempotency_key": str(uuid4()),
@@ -81,7 +83,7 @@ def build_blocked_event(
         "moderator_id": moderator_id,
         "moderator_comment": moderator_comment,
         "blocking_reason_id": blocking_reason_id,
-        "hard_block": False,
+        "hard_block": hard_block,
         "field_reports": field_reports,
         "occurred_at": utc_now_iso(occurred_at),
     }

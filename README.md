@@ -259,8 +259,16 @@ The OpenAPI `POST /api/v1/tickets/{ticket_id}/approve` endpoint and canonical pr
 
 ## US-MOD-04 ADR
 
-For field-level moderation feedback I considered a child table with one row per report, a JSON array on the moderation card, and event sourcing. I chose a separate table because analytics can filter and aggregate directly by `field_name` without parsing JSON, while adding optional report columns remains a conventional migration. JSON would reduce joins but make field analytics database-specific, and event sourcing would add replay complexity beyond the current scope. Hard-block reasons are rejected by the soft-block endpoint with `400` rather than silently routing to a terminal decision.
+For field-level moderation feedback I considered a child table with one row per report, a JSON array on the moderation card, and event sourcing. I chose a separate table because analytics can filter and aggregate directly by `field_name` without parsing JSON, while adding optional report columns remains a conventional migration. JSON would reduce joins but make field analytics database-specific, and event sourcing would add replay complexity beyond the current scope. The shared decision endpoint routes an active hard-block reason to the terminal flow instead of duplicating validation in a second handler.
 
 ## Moderation Soft Block
 
-Moderators soft-block an owned `IN_REVIEW` card through OpenAPI `POST /api/v1/tickets/{ticket_id}/block` or canonical `POST /api/v1/products/{product_id}/decline`. The handler validates an active non-hard blocking reason, normalizes OpenAPI `field_path/message` into the canonical field enum, stores reports in a queryable table, and changes the card to `BLOCKED`. A `BLOCKED` event with `hard_block=false`, the selected reason, comment, and field reports is delivered to B2B through the durable outbox.
+Moderators block an owned `IN_REVIEW` card through OpenAPI `POST /api/v1/tickets/{ticket_id}/block` or canonical `POST /api/v1/products/{product_id}/decline`. The handler validates an active reason, normalizes OpenAPI `field_path/message` into the canonical field enum, stores reports in a queryable table, and changes the card to `BLOCKED` when `hard_block=false`. A `BLOCKED` event with the selected reason, comment, field reports, and `hard_block=false` is delivered to B2B through the durable outbox.
+
+## US-MOD-05 ADR
+
+For hard-block irreversibility I considered checking a terminal enum status in every mutating endpoint, storing a separate `is_terminal` flag, and moving hard-blocked cards to an archive table. I chose the terminal `HARD_BLOCKED` status enforced by the shared decision guard because every moderator mutation passes through one auditable check and the card remains available for incident review. A separate flag could drift out of sync with status, while an archive table complicates joins and emergency data fixes. Superadmin correction remains an explicit audited database operation outside the normal API flow.
+
+## Moderation Hard Block
+
+The same block/decline endpoints route reasons with `hard_block=true` to `HARD_BLOCKED` and send `event_type=BLOCKED` with `hard_block=true` to B2B through the outbox. Approve and repeat block attempts return `403 HARD_BLOCKED_TERMINAL`; seller `PRODUCT_EDITED` events are recorded idempotently but cannot change the card or snapshot. A later `PRODUCT_DELETED` event removes the Moderation record while the B2B product remains terminally blocked.
