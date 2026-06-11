@@ -255,7 +255,7 @@ For delivering a MODERATED decision to B2B I considered a synchronous HTTP reque
 
 ## Moderation Product Approval
 
-The OpenAPI `POST /api/v1/tickets/{ticket_id}/approve` endpoint and canonical product-moderation alias require the card to be `IN_REVIEW`, assigned to the JWT moderator, unchanged since claim, and backed by at least one SKU in the current snapshot. Approval changes the card to `MODERATED` and writes a B2B outbox event using the `/api/v1/moderation/events` contract. Content and review revision numbers reject stale approvals after an EDITED event, while the outbox idempotency key prevents duplicate catalog publication. Failed deliveries remain `PENDING` and can be retried with `python -m app.retry_b2b_events`.
+The OpenAPI `POST /api/v1/tickets/{ticket_id}/approve` endpoint and canonical product-moderation alias require the card to be `IN_REVIEW`, assigned to the JWT moderator, unchanged since claim, and backed by at least one SKU in the current snapshot. Approval changes the moderation ticket to `APPROVED` and writes a `MODERATED` B2B outbox event using the `/api/v1/moderation/events` contract. Content and review revision numbers reject stale approvals after an EDITED event, while the outbox idempotency key prevents duplicate catalog publication. Failed deliveries remain `PENDING` and can be retried with `python -m app.retry_b2b_events`.
 
 ## US-MOD-04 ADR
 

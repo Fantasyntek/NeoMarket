@@ -224,7 +224,7 @@ def _edited(db: Session, event: ProductEvent) -> ProductModeration:
         return card
     if old_status == "BLOCKED":
         card.queue_priority = 2
-    elif old_status == "MODERATED":
+    elif old_status == "APPROVED":
         card.queue_priority = 3 if card.total_active_quantity > 0 else 4
     card.status = "PENDING"
     card.moderator_id = None

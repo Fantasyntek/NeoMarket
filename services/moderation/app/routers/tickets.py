@@ -243,7 +243,7 @@ def _approve(
         )
 
     decision_at = utc_now()
-    card.status = "MODERATED"
+    card.status = "APPROVED"
     card.moderator_comment = _comment(payload)
     card.blocking_reason_id = None
     card.decision_at = decision_at
