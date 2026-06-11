@@ -215,7 +215,7 @@ For asynchronous unreserve retries I considered a Celery task with exponential b
 
 ## B2C Order Cancellation
 
-Buyers cancel `CREATED` or `PAID` orders through `POST /api/v1/orders/{order_id}/cancel`. B2C sends the persisted order quantities to B2B `POST /api/v1/inventory/unreserve`; success produces `CANCELLED`, while timeout or a server error produces `CANCEL_PENDING` and a durable retry record. Pending retries can be processed with `python -m app.retry_cancellations`, making the scaffold suitable for cron without losing work during restarts. Ownership uses the same scoped lookup as order details, so foreign orders return `404`.
+Buyers cancel `CREATED` or `PAID` orders through `POST /api/v1/orders/{order_id}/cancel`. B2C sends the persisted order quantities to B2B `POST /api/v1/inventory/unreserve`; success produces `CANCELLED`, while timeout or a server error produces `CANCEL_PENDING` and a durable retry record. Cancellation responses use the same full `OrderResponse` as checkout and order details, including contract-shaped address and payment method objects. Non-retryable B2B 4xx responses are propagated without changing the order status, while pending retries can be processed with `python -m app.retry_cancellations`. Ownership uses the same scoped lookup as order details, so foreign orders return `404`.
 
 ## US-ORD-04 ADR
 

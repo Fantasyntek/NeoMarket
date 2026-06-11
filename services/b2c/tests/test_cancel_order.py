@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.auth import create_access_token
-from app.b2b_client import B2BUnavailableError, get_b2b_client
+from app.b2b_client import B2BResponseError, B2BUnavailableError, get_b2b_client
 from app.cancellation_retry import process_cancellation_retries
 from app.models import CancellationRetry, Order, OrderItem
 
@@ -104,6 +104,13 @@ def test_cancel_paid_order_transitions_to_cancelled(
     db_session.refresh(order)
     assert response.status_code == 200
     assert response.json()["status"] == "CANCELLED"
+    assert response.json()["address"]["id"] == ADDRESS_ID
+    assert response.json()["address"]["city"] == "mock"
+    assert response.json()["payment_method"]["id"] == PAYMENT_METHOD_ID
+    assert response.json()["buyer_id"] == USER_ID
+    assert response.json()["subtotal"] == 24998000
+    assert response.json()["total"] == 24998000
+    assert "delivery_address" not in response.json()
     assert order.status == "CANCELLED"
     assert fake.unreserve_calls == [
         {
@@ -130,6 +137,8 @@ def test_unreserve_failure_transitions_to_cancel_pending(
     retry = db_session.query(CancellationRetry).one()
     assert response.status_code == 200
     assert response.json()["status"] == "CANCEL_PENDING"
+    assert response.json()["address"]["id"] == ADDRESS_ID
+    assert response.json()["payment_method"]["id"] == PAYMENT_METHOD_ID
     assert order.status == "CANCEL_PENDING"
     assert retry.order_id == order.id
     assert retry.attempt_count == 0
@@ -171,6 +180,39 @@ def test_other_user_order_returns_404(
     assert response.status_code == 404
     assert response.json()["code"] == "ORDER_NOT_FOUND"
     assert fake.unreserve_calls == []
+
+
+def test_unreserve_non_retryable_error_is_propagated(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    order = create_order(db_session)
+    override_b2b(
+        client,
+        FakeB2BClient(
+            B2BResponseError(
+                409,
+                {
+                    "code": "UNRESERVE_CONFLICT",
+                    "message": "Reservation cannot be released",
+                },
+            )
+        ),
+    )
+
+    response = client.post(
+        f"/api/v1/orders/{order.id}/cancel",
+        headers=auth_headers(),
+    )
+
+    db_session.refresh(order)
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "UNRESERVE_CONFLICT",
+        "message": "Reservation cannot be released",
+    }
+    assert order.status == "PAID"
+    assert db_session.query(CancellationRetry).count() == 0
 
 
 def test_pending_cancellation_retry_completes_after_b2b_recovers(
