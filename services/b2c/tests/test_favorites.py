@@ -110,14 +110,13 @@ def test_add_to_favorites_returns_201(
 ) -> None:
     fake_b2b = override_b2b(client, FakeB2BClient())
 
-    response = client.post(
+    response = client.put(
         f"/api/v1/favorites/{PRODUCT_ID}",
         headers=auth_headers,
     )
 
-    assert response.status_code == 201
-    assert response.json()["product_id"] == PRODUCT_ID
-    assert response.json()["added_at"]
+    assert response.status_code == 204
+    assert response.content == b""
     favorite = db_session.query(Favorite).one()
     assert favorite.user_id == USER_ID
     assert fake_b2b.get_calls == [PRODUCT_ID]
@@ -130,18 +129,19 @@ def test_repeat_add_returns_200_not_duplicate(
 ) -> None:
     override_b2b(client, FakeB2BClient())
 
-    first_response = client.post(
+    first_response = client.put(
         f"/api/v1/favorites/{PRODUCT_ID}",
         headers=auth_headers,
     )
-    second_response = client.post(
+    second_response = client.put(
         f"/api/v1/favorites/{PRODUCT_ID}",
         headers=auth_headers,
     )
 
-    assert first_response.status_code == 201
-    assert second_response.status_code == 200
-    assert second_response.json()["added_at"] == first_response.json()["added_at"]
+    assert first_response.status_code == 204
+    assert second_response.status_code == 204
+    assert first_response.content == b""
+    assert second_response.content == b""
     assert db_session.query(Favorite).count() == 1
 
 
@@ -213,12 +213,12 @@ def test_user_id_from_query_is_ignored(
 ) -> None:
     override_b2b(client, FakeB2BClient())
 
-    response = client.post(
+    response = client.put(
         f"/api/v1/favorites/{PRODUCT_ID}?user_id={OTHER_USER_ID}",
         headers=headers_for(USER_ID),
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 204
     favorite = db_session.query(Favorite).one()
     assert favorite.user_id == USER_ID
     assert favorite.user_id != OTHER_USER_ID
@@ -260,7 +260,7 @@ def test_b2b_unavailable_returns_503(
 ) -> None:
     override_b2b(client, UnavailableB2BClient())
 
-    response = client.post(
+    response = client.put(
         f"/api/v1/favorites/{PRODUCT_ID}",
         headers=auth_headers,
     )

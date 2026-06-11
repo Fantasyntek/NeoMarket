@@ -159,7 +159,7 @@ For identifying the owner of a favorites list I considered accepting `user_id` f
 
 ## B2C Favorites
 
-Favorites are available to authenticated buyers through `POST`, `DELETE`, and `GET /api/v1/favorites`. B2C persists only `user_id`, `product_id`, and `added_at`; product cards are batch-enriched from the B2B public catalog on every list request, so blocked or deleted products are excluded without deleting the stored favorite. Adding an existing favorite returns `200`, deleting a missing favorite returns `204`, and `user_id` always comes from the signed JWT `sub` claim.
+Favorites are available to authenticated buyers through idempotent `PUT` and `DELETE /api/v1/favorites/{product_id}` plus `GET /api/v1/favorites`. B2C persists only `user_id`, `product_id`, and `added_at`; product cards are batch-enriched from the B2B public catalog on every list request, so blocked or deleted products are excluded without deleting the stored favorite. Both first and repeated additions return `204` without a body, deleting a missing favorite also returns `204`, and `user_id` always comes from the signed JWT `sub` claim.
 
 ## US-CART-02 ADR
 

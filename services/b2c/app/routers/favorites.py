@@ -4,7 +4,6 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
-from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,16 +32,6 @@ def _normalize_product_id(product_id: str) -> str:
 
 def _product_not_found() -> None:
     raise api_error(404, "PRODUCT_NOT_FOUND", "Product not found")
-
-
-def _favorite_response(favorite: Favorite, status_code: int) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "product_id": favorite.product_id,
-            "added_at": favorite.added_at.isoformat(),
-        },
-    )
 
 
 def _require_visible_product(b2b_client: B2BClient, product_id: str) -> None:
@@ -79,13 +68,13 @@ def _batch_visible_products(
     return products
 
 
-@router.post("/{product_id}")
+@router.put("/{product_id}", status_code=204)
 def add_favorite(
     product_id: str,
     current_user: CurrentUser = Depends(require_user),
     db: Session = Depends(get_db),
     b2b_client: B2BClient = Depends(get_b2b_client),
-) -> JSONResponse:
+) -> Response:
     normalized_product_id = _normalize_product_id(product_id)
     existing = (
         db.query(Favorite)
@@ -96,7 +85,7 @@ def add_favorite(
         .one_or_none()
     )
     if existing is not None:
-        return _favorite_response(existing, 200)
+        return Response(status_code=204)
 
     _require_visible_product(b2b_client, normalized_product_id)
     favorite = Favorite(
@@ -108,17 +97,17 @@ def add_favorite(
         db.commit()
     except IntegrityError:
         db.rollback()
-        favorite = (
+        concurrent_favorite = (
             db.query(Favorite)
             .filter(
                 Favorite.user_id == current_user.user_id,
                 Favorite.product_id == normalized_product_id,
             )
-            .one()
+            .one_or_none()
         )
-        return _favorite_response(favorite, 200)
-    db.refresh(favorite)
-    return _favorite_response(favorite, 201)
+        if concurrent_favorite is None:
+            raise
+    return Response(status_code=204)
 
 
 @router.delete("/{product_id}", status_code=204)
