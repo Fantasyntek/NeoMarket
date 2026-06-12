@@ -273,6 +273,8 @@ For hard-block irreversibility I considered checking a terminal enum status in e
 
 The same block/decline endpoints route reasons with `hard_block=true` to `HARD_BLOCKED` and send `event_type=BLOCKED` with `hard_block=true` to B2B through the outbox. Approve and repeat block attempts return `403 HARD_BLOCKED_TERMINAL`; seller `PRODUCT_EDITED` events are recorded idempotently but cannot change the card or snapshot. A later `PRODUCT_DELETED` event removes the Moderation record while the B2B product remains terminally blocked.
 
+OpenAPI block requests accept one or more `blocking_reason_ids`. Every active reason is preserved in the moderation association table; if any selected reason is hard, the decision is terminal and the first hard reason becomes the primary `blocking_reason_id` used by the current B2B event contract. The canonical product decline route continues to accept its documented singular `blocking_reason_id`.
+
 ## US-MOD-06 ADR
 
 For the blocking-reason dictionary I considered a code enum with migrations, a database table managed through an admin API, and an i18n catalog. I chose the database table because administrators can add or deactivate reasons without deploying code, while moderation cards keep stable UUID references for historical analysis. Physical deletion is never exposed, so referenced reasons remain available even after deactivation. An i18n catalog can later use the stable code as a translation key without changing stored moderation decisions.

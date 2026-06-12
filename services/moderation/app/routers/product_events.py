@@ -13,7 +13,12 @@ from sqlalchemy.orm import Session
 from app.auth import is_valid_b2b_service_key
 from app.database import get_db
 from app.errors import api_error
-from app.models import ModerationFieldReport, ProcessedProductEvent, ProductModeration
+from app.models import (
+    ModerationFieldReport,
+    ProcessedProductEvent,
+    ProductModeration,
+    ProductModerationBlockingReason,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["B2B Events"])
@@ -219,6 +224,9 @@ def _edited(db: Session, event: ProductEvent) -> ProductModeration:
     db.query(ModerationFieldReport).filter(
         ModerationFieldReport.product_moderation_id == card.id
     ).delete(synchronize_session=False)
+    db.query(ProductModerationBlockingReason).filter(
+        ProductModerationBlockingReason.product_moderation_id == card.id
+    ).delete(synchronize_session=False)
 
     if old_status == "IN_REVIEW":
         return card
@@ -242,6 +250,9 @@ def _deleted(db: Session, event: ProductEvent) -> ProductModeration | None:
     if card.status == "HARD_BLOCKED":
         db.query(ModerationFieldReport).filter(
             ModerationFieldReport.product_moderation_id == card.id
+        ).delete(synchronize_session=False)
+        db.query(ProductModerationBlockingReason).filter(
+            ProductModerationBlockingReason.product_moderation_id == card.id
         ).delete(synchronize_session=False)
         db.delete(card)
         return None

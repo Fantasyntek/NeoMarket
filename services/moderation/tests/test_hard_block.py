@@ -13,6 +13,7 @@ from app.models import (
     BlockingReason,
     ProcessedProductEvent,
     ProductModeration,
+    ProductModerationBlockingReason,
 )
 
 
@@ -172,6 +173,48 @@ def test_hard_block_event_carries_hard_block_true(
     assert fake.events[0]["event_type"] == "BLOCKED"
     assert fake.events[0]["hard_block"] is True
     assert fake.events[0]["blocking_reason_id"] == reason.id
+
+
+def test_hard_block_accepts_multiple_reason_ids(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    soft_reason = BlockingReason(
+        code=f"MISLEADING_{uuid4().hex.upper()}",
+        title="Misleading description",
+        hard_block=False,
+        is_active=True,
+    )
+    hard_reason = create_hard_reason(db_session)
+    db_session.add(soft_reason)
+    db_session.commit()
+    db_session.refresh(soft_reason)
+    card = create_review_card(db_session)
+    fake = override_b2b(client)
+
+    response = client.post(
+        f"/api/v1/tickets/{card.id}/block",
+        json={
+            "blocking_reason_ids": [soft_reason.id, hard_reason.id],
+            "comment": "Multiple violations confirmed",
+            "field_reports": [],
+        },
+        headers=auth_headers(),
+    )
+
+    db_session.refresh(card)
+    stored_reason_ids = {
+        row.blocking_reason_id
+        for row in db_session.query(ProductModerationBlockingReason)
+        .filter(ProductModerationBlockingReason.product_moderation_id == card.id)
+        .all()
+    }
+    assert response.status_code == 200
+    assert response.json()["status"] == "HARD_BLOCKED"
+    assert card.blocking_reason_id == hard_reason.id
+    assert stored_reason_ids == {soft_reason.id, hard_reason.id}
+    assert fake.events[0]["hard_block"] is True
+    assert fake.events[0]["blocking_reason_id"] == hard_reason.id
 
 
 def test_any_modify_on_hard_blocked_returns_403(
