@@ -18,7 +18,12 @@ from app.b2b import (
 )
 from app.database import get_db
 from app.errors import api_error
-from app.models import BlockingReason, ModerationFieldReport, ProductModeration
+from app.models import (
+    BlockingReason,
+    ModerationFieldReport,
+    ProductModeration,
+    ProductModerationBlockingReason,
+)
 from app.routers.queue import _serialize
 
 
@@ -60,32 +65,60 @@ def _has_sku(card: ProductModeration) -> bool:
     return isinstance(skus, list) and any(isinstance(sku, dict) for sku in skus)
 
 
-def _reason_id(payload: dict[str, Any] | None) -> str:
+def _reason_ids(payload: dict[str, Any] | None) -> list[str]:
     payload = payload or {}
     raw_value = payload.get("blocking_reason_id")
-    if raw_value is None:
-        raw_values = payload.get("blocking_reason_ids")
-        if not isinstance(raw_values, list) or len(raw_values) != 1:
+    raw_values = payload.get("blocking_reason_ids")
+    if raw_value is not None:
+        raw_values = [raw_value]
+    if not isinstance(raw_values, list) or not raw_values:
+        raise api_error(
+            400,
+            "INVALID_BLOCKING_REASON",
+            "At least one blocking reason is required",
+        )
+    normalized: list[str] = []
+    for raw_reason_id in raw_values:
+        if not isinstance(raw_reason_id, str):
             raise api_error(
                 400,
                 "INVALID_BLOCKING_REASON",
-                "Exactly one blocking reason is required",
+                "blocking_reason_ids must contain valid UUIDs",
             )
-        raw_value = raw_values[0]
-    if not isinstance(raw_value, str):
+        try:
+            reason_id = str(UUID(raw_reason_id))
+        except ValueError:
+            raise api_error(
+                400,
+                "INVALID_BLOCKING_REASON",
+                "blocking_reason_ids must contain valid UUIDs",
+            )
+        if reason_id not in normalized:
+            normalized.append(reason_id)
+    return normalized
+
+
+def _blocking_reasons(
+    db: Session,
+    reason_ids: list[str],
+) -> list[BlockingReason]:
+    reasons_by_id = {
+        reason.id: reason
+        for reason in db.query(BlockingReason)
+        .filter(BlockingReason.id.in_(reason_ids))
+        .all()
+    }
+    if any(
+        reason_id not in reasons_by_id
+        or not reasons_by_id[reason_id].is_active
+        for reason_id in reason_ids
+    ):
         raise api_error(
             400,
-            "INVALID_BLOCKING_REASON",
-            "blocking_reason_id must be a valid UUID",
+            "UNKNOWN_BLOCKING_REASON",
+            "Blocking reason does not exist or is inactive",
         )
-    try:
-        return str(UUID(raw_value))
-    except ValueError:
-        raise api_error(
-            400,
-            "INVALID_BLOCKING_REASON",
-            "blocking_reason_id must be a valid UUID",
-        )
+    return [reasons_by_id[reason_id] for reason_id in reason_ids]
 
 
 def _normalize_field_name(field_name: str) -> str | None:
@@ -278,14 +311,10 @@ def _block(
     dispatcher: B2BDispatcher,
 ) -> dict[str, Any]:
     card = _owned_in_review_card(ticket_id, moderator, db)
-    blocking_reason_id = _reason_id(payload)
-    reason = db.get(BlockingReason, blocking_reason_id)
-    if reason is None or not reason.is_active:
-        raise api_error(
-            400,
-            "UNKNOWN_BLOCKING_REASON",
-            "Blocking reason does not exist or is inactive",
-        )
+    reasons = _blocking_reasons(db, _reason_ids(payload))
+    hard_reasons = [reason for reason in reasons if reason.hard_block]
+    primary_reason = hard_reasons[0] if hard_reasons else reasons[0]
+    is_hard_block = bool(hard_reasons)
     reports = _field_reports(payload)
     moderator_comment = _comment(
         {
@@ -296,8 +325,8 @@ def _block(
         }
     )
     decision_at = utc_now()
-    card.status = "HARD_BLOCKED" if reason.hard_block else "BLOCKED"
-    card.blocking_reason_id = reason.id
+    card.status = "HARD_BLOCKED" if is_hard_block else "BLOCKED"
+    card.blocking_reason_id = primary_reason.id
     card.moderator_comment = moderator_comment
     card.decision_at = decision_at
     card.claim_expires_at = None
@@ -305,6 +334,16 @@ def _block(
     db.query(ModerationFieldReport).filter(
         ModerationFieldReport.product_moderation_id == card.id
     ).delete(synchronize_session=False)
+    db.query(ProductModerationBlockingReason).filter(
+        ProductModerationBlockingReason.product_moderation_id == card.id
+    ).delete(synchronize_session=False)
+    for reason in reasons:
+        db.add(
+            ProductModerationBlockingReason(
+                product_moderation_id=card.id,
+                blocking_reason_id=reason.id,
+            )
+        )
     for report in reports:
         db.add(
             ModerationFieldReport(
@@ -327,11 +366,11 @@ def _block(
     event_payload = build_blocked_event(
         card.product_id,
         moderator.moderator_id,
-        reason.id,
+        primary_reason.id,
         moderator_comment,
         event_reports,
         decision_at,
-        hard_block=reason.hard_block,
+        hard_block=is_hard_block,
     )
     outbox_event = record_b2b_outbox_event(db, event_payload)
     db.commit()

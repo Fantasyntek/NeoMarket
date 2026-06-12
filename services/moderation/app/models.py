@@ -159,6 +159,21 @@ class BlockingReason(Base):
     )
 
 
+class ProductModerationBlockingReason(Base):
+    __tablename__ = "product_moderation_blocking_reasons"
+
+    product_moderation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("product_moderation.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    blocking_reason_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("blocking_reasons.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
 class ModerationFieldReport(Base):
     __tablename__ = "moderation_field_reports"
 
